@@ -2,9 +2,7 @@ name: Power
 
 on:
   schedule:
-    # Запуск каждый день в 3:00 UTC
     - cron: '0 3 * * *'
-  # Возможность ручного запуска
   workflow_dispatch:
 
 permissions:
@@ -26,7 +24,6 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Нет внешних зависимостей, только стандартная библиотека
       
       - name: Run collector
         run: python filter.py
@@ -35,6 +32,13 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
-          git add out.txt 500.txt stat.txt trash.txt stats_history.json
+          
+          # Добавляем только существующие файлы
+          for file in out.txt 500.txt stat.txt trash.txt stats_history.json; do
+            if [ -f "$file" ]; then
+              git add "$file"
+            fi
+          done
+          
           git diff --quiet && git diff --staged --quiet || git commit -m "📅 Автоматическое обновление подписок от $(date +'%Y-%m-%d')"
           git push
