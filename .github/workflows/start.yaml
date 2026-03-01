@@ -1,4 +1,4 @@
-name: S
+name: Start
 
 on:
   schedule:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  run:
+  filter:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     
@@ -18,48 +18,36 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: P
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
       
-      - name: I
+      - name: Install dependencies
         run: pip install pyyaml requests geoip2
       
-      - name: G
+      - name: Check GeoIP
         run: |
-          if [ ! -f c.mmdb ]; then
-            curl -L -o c.mmdb https://raw.githubusercontent.com/Loyalsoldier/geoip/release/country.mmdb
+          if [ ! -f country.mmdb ]; then
+            curl -L -o country.mmdb https://raw.githubusercontent.com/Loyalsoldier/geoip/release/country.mmdb
           fi
       
-      - name: F
-        id: f
+      - name: Run filter
+        id: filter
         run: |
           python filter.py
           if [ -f out.yaml ]; then
-            echo "ok=1" >> $GITHUB_OUTPUT
-            echo "c=$(grep -c "type: vless" out.yaml)" >> $GITHUB_OUTPUT
+            echo "ok=true" >> $GITHUB_OUTPUT
+            echo "count=$(grep -c "type: vless" out.yaml)" >> $GITHUB_OUTPUT
           else
-            echo "ok=0" >> $GITHUB_OUTPUT
-            echo "c=0" >> $GITHUB_OUTPUT
+            echo "ok=false" >> $GITHUB_OUTPUT
+            echo "count=0" >> $GITHUB_OUTPUT
           fi
       
-      - name: C
+      - name: Commit changes
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "action"
-          git add out.yaml s.txt t.txt c.mmdb 2>/dev/null || true
-          git diff --staged --quiet || git commit -m "u"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add out.yaml stat.txt trash.txt country.mmdb 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "Update proxies"
           git push
-      
-      - name: T
-        if: ${{ secrets.TG != '' }}
-        env:
-          TG: ${{ secrets.TG }}
-          ID: ${{ secrets.ID }}
-        run: |
-          C="${{ steps.f.outputs.c }}"
-          curl -s -X POST "https://api.telegram.org/bot${TG}/sendMessage" \
-            -d "chat_id=${ID}" \
-            -d "text=${C}" \
-            -d "disable_web_page_preview=true"
