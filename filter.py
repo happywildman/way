@@ -2,12 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-VLESS+Reality Collector v3.0
+VLESS+Reality Collector v3.1
 ====================================
+Файл: filter.py
+Структура: way/filter.py
+
 1. Сбор ВСЕХ vless подписок с GitHub → list.txt
 2. Фильтр vless+reality:443 + тест 204 (только хорошие) → out.txt
 3. Битые/медленные → trash.txt
 4. Топ-500 лучших из out.txt → 500.txt
+5. Статистика → stat.txt
 ====================================
 """
 
@@ -50,7 +54,6 @@ class GitHubCrawler:
         
     def search_gitlab(self):
         """Поиск по GitLab (альтернативный источник)."""
-        # GitLab API поиска
         gitlab_search_urls = [
             'https://gitlab.com/api/v4/projects?search=vless',
             'https://gitlab.com/api/v4/projects?search=reality',
@@ -62,9 +65,8 @@ class GitHubCrawler:
                 req = urllib.request.Request(url, headers={'User-Agent': self.user_agent})
                 with urllib.request.urlopen(req, timeout=self.timeout) as response:
                     projects = json.loads(response.read())
-                    for project in projects[:10]:  # Лимит 10 проектов
+                    for project in projects[:10]:
                         if 'vless' in project['name'].lower() or 'subscription' in project['name'].lower():
-                            # Формируем ссылки на raw файлы
                             for ext in ['.txt', '.yaml', '.yml', '.json']:
                                 raw_url = f"https://gitlab.com/{project['path_with_namespace']}/-/raw/main/sub{ext}"
                                 self.found_subscriptions.add(raw_url)
@@ -75,7 +77,6 @@ class GitHubCrawler:
     
     def search_common_repos(self):
         """Поиск по известным репозиториям."""
-        # Список известных репозиториев с подписками
         known_repos = [
             ('v2ray-config', 'vless'),
             ('v2ray-subscription', 'main'),
@@ -95,25 +96,10 @@ class GitHubCrawler:
                 for ext in extensions:
                     url = f"https://raw.githubusercontent.com/{repo}/{branch}/{keyword}{ext}"
                     self.found_subscriptions.add(url)
-                    
-                    # Альтернативные имена файлов
                     url = f"https://raw.githubusercontent.com/{repo}/{branch}/v2ray{ext}"
                     self.found_subscriptions.add(url)
-                    
                     url = f"https://raw.githubusercontent.com/{repo}/{branch}/config{ext}"
                     self.found_subscriptions.add(url)
-    
-    def search_code(self):
-        """Поиск через GitHub code search (ограничено без токена)."""
-        # Без токена GitHub ограничивает поиск, но попробуем базовые запросы
-        search_queries = [
-            'https://github.com/search?q=vless+extension:txt&type=Code',
-            'https://github.com/search?q=reality+extension:txt&type=Code',
-            'https://github.com/search?q=v2ray+subscription&type=Code'
-        ]
-        
-        # Здесь нужен парсинг HTML, что сложно без токена
-        # В реальном проекте лучше использовать GitHub API с токеном
     
     def crawl(self) -> List[str]:
         """Запуск поиска подписок на GitHub."""
@@ -121,9 +107,7 @@ class GitHubCrawler:
         
         self.search_common_repos()
         self.search_gitlab()
-        # self.search_code()  # Закомментировано т.к. требует парсинга HTML
         
-        # Добавляем известные публичные подписки (для примера)
         public_subs = [
             'https://raw.githubusercontent.com/v2ray-config/v2ray-config/main/vless.txt',
             'https://raw.githubusercontent.com/free-v2ray-config/free-v2ray-config/main/sub.txt',
@@ -150,7 +134,6 @@ class SubscriptionDownloader:
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 content = response.read()
                 
-                # Пробуем декодировать
                 try:
                     return content.decode('utf-8')
                 except UnicodeDecodeError:
@@ -166,7 +149,6 @@ class SubscriptionDownloader:
         """Скачивает все найденные подписки в list.txt."""
         downloaded = 0
         
-        # Очищаем или создаем файл
         with open(self.output_file, 'w', encoding='utf-8') as f:
             f.write(f"# Сырые vless подписки с GitHub\n")
             f.write(f"# Собрано: {datetime.now().isoformat()}\n")
@@ -185,7 +167,6 @@ class SubscriptionDownloader:
                     f.write("\n" + "#"*50 + "\n")
                 downloaded += 1
             
-            # Задержка между запросами
             if i < len(urls):
                 time.sleep(2)
         
@@ -200,14 +181,31 @@ class VlessProcessor:
                  input_file: str = 'list.txt',
                  out_file: str = 'out.txt',
                  trash_file: str = 'trash.txt',
-                 speed_threshold: float = 800.0):  # Хорошая скорость = до 800ms
+                 stat_file: str = 'stat.txt',
+                 speed_threshold: float = 800.0):
         self.input_file = input_file
         self.out_file = out_file
         self.trash_file = trash_file
+        self.stat_file = stat_file
         self.speed_threshold = speed_threshold
         self.trash_servers = self._load_trash()
         self.timeout = 5
         self.user_agent = 'Mozilla/5.0'
+        
+        # Статистика
+        self.stats = {
+            'timestamp': datetime.now().isoformat(),
+            'total_vless_found': 0,
+            'reality_port443': 0,
+            'tested': 0,
+            'good': 0,
+            'bad': 0,
+            'slow': 0,
+            'avg_speed_good': 0,
+            'min_speed_good': 0,
+            'max_speed_good': 0,
+            'threshold_ms': speed_threshold
+        }
         
     def _load_trash(self) -> Set[str]:
         """Загружает trash.txt."""
@@ -217,7 +215,10 @@ class VlessProcessor:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith('#'):
-                        trash.add(line)
+                        # Убираем комментарии после ссылки
+                        config = line.split('#')[0].strip()
+                        if config:
+                            trash.add(config)
         return trash
     
     def _save_to_trash(self, config: str, reason: str = ""):
@@ -226,6 +227,28 @@ class VlessProcessor:
             self.trash_servers.add(config)
             with open(self.trash_file, 'a', encoding='utf-8') as f:
                 f.write(f"{config} # {reason}\n")
+    
+    def _save_stats(self):
+        """Сохраняет статистику в stat.txt."""
+        with open(self.stat_file, 'w', encoding='utf-8') as f:
+            f.write("="*60 + "\n")
+            f.write("СТАТИСТИКА VLESS+REALITY COLLECTOR\n")
+            f.write("="*60 + "\n\n")
+            
+            f.write(f"Время проверки: {self.stats['timestamp']}\n")
+            f.write(f"Порог скорости: {self.stats['threshold_ms']}ms\n\n")
+            
+            f.write(f"Всего vless ссылок найдено: {self.stats['total_vless_found']}\n")
+            f.write(f"Из них reality:443: {self.stats['reality_port443']}\n")
+            f.write(f"Протестировано: {self.stats['tested']}\n")
+            f.write(f"  ✅ Хороших: {self.stats['good']}\n")
+            f.write(f"  ❌ Битых: {self.stats['bad']}\n")
+            f.write(f"  ⚠ Медленных (>={self.stats['threshold_ms']}ms): {self.stats['slow']}\n\n")
+            
+            if self.stats['good'] > 0:
+                f.write(f"Средняя скорость хороших: {self.stats['avg_speed_good']:.0f}ms\n")
+                f.write(f"Минимальная: {self.stats['min_speed_good']:.0f}ms\n")
+                f.write(f"Максимальная: {self.stats['max_speed_good']:.0f}ms\n")
     
     def extract_vless_from_file(self) -> List[str]:
         """Извлекает ВСЕ vless ссылки из list.txt."""
@@ -239,30 +262,26 @@ class VlessProcessor:
         with open(self.input_file, 'r', encoding='utf-8') as f:
             content = f.read()
             
-            # Проверяем, не base64 ли весь файл
             if re.match(r'^[A-Za-z0-9+/=]+$', content[:100].replace('\n', '')):
                 try:
                     content = base64.b64decode(content).decode('utf-8', errors='ignore')
                 except:
                     pass
             
-            # Ищем все vless ссылки
             found = re.findall(vless_pattern, content)
             all_vless.extend(found)
         
-        # Убираем дубликаты
         unique_vless = list(set(all_vless))
+        self.stats['total_vless_found'] = len(unique_vless)
         logger.info(f"Найдено {len(unique_vless)} уникальных vless ссылок в {self.input_file}")
         return unique_vless
     
     def is_reality_port443(self, config: str) -> Tuple[bool, str]:
         """Проверка vless+reality и порт 443, возвращает хост."""
         try:
-            # Извлекаем параметры
             if 'security=reality' not in config and 'reality' not in config:
                 return False, ""
             
-            # Извлекаем хост и порт
             after_at = config.split('@')[1]
             host_part = after_at.split('?')[0]
             
@@ -279,7 +298,6 @@ class VlessProcessor:
         test_url = f"http://{host}/generate_204"
         
         try:
-            # Замеряем время
             start = time.time()
             
             req = urllib.request.Request(
@@ -289,7 +307,7 @@ class VlessProcessor:
             )
             
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                elapsed = (time.time() - start) * 1000  # в ms
+                elapsed = (time.time() - start) * 1000
                 
                 if resp.status == 204:
                     return True, elapsed
@@ -299,18 +317,12 @@ class VlessProcessor:
             return False, float('inf')
     
     def process(self) -> Dict[str, float]:
-        """
-        Обрабатывает list.txt:
-        - фильтр vless+reality:443
-        - тест 204 скорости
-        - возвращает {config: speed_ms} для хороших
-        """
+        """Обрабатывает list.txt и возвращает хорошие конфиги."""
         all_vless = self.extract_vless_from_file()
         
-        # Фильтр 1: vless+reality:443
+        # Фильтр reality:443
         candidates = []
         for config in all_vless:
-            # Пропускаем если уже в trash
             if config in self.trash_servers:
                 continue
                 
@@ -318,41 +330,54 @@ class VlessProcessor:
             if is_valid:
                 candidates.append((config, host))
         
+        self.stats['reality_port443'] = len(candidates)
         logger.info(f"После фильтра reality:443 осталось {len(candidates)} кандидатов")
         
-        # Тест 204 скорости
-        good_configs = {}  # config -> speed_ms
-        bad_configs = []   # для trash
+        # Тест скорости
+        good_configs = {}
+        speeds = []
+        bad_count = 0
+        slow_count = 0
         
         for i, (config, host) in enumerate(candidates, 1):
             logger.info(f"[{i}/{len(candidates)}] Тест {host}")
             
             is_working, speed = self.test_204_speed(host)
+            self.stats['tested'] += 1
             
-            if is_working and speed <= self.speed_threshold:
-                good_configs[config] = speed
-                logger.info(f"  ✅ {speed:.0f}ms (ХОРОШИЙ)")
+            if is_working:
+                if speed <= self.speed_threshold:
+                    good_configs[config] = speed
+                    speeds.append(speed)
+                    logger.info(f"  ✅ {speed:.0f}ms (ХОРОШИЙ)")
+                else:
+                    slow_count += 1
+                    self._save_to_trash(config, f"медленный {speed:.0f}ms")
+                    logger.info(f"  ⚠ {speed:.0f}ms (МЕДЛЕННЫЙ)")
             else:
-                reason = f"битый" if not is_working else f"медленный {speed:.0f}ms"
-                bad_configs.append((config, reason))
-                logger.info(f"  ❌ {reason}")
+                bad_count += 1
+                self._save_to_trash(config, "битый")
+                logger.info(f"  ❌ БИТЫЙ")
         
-        # Сохраняем битые/медленные в trash
-        for config, reason in bad_configs:
-            self._save_to_trash(config, reason)
+        self.stats['good'] = len(good_configs)
+        self.stats['bad'] = bad_count
+        self.stats['slow'] = slow_count
         
-        # Сортируем хорошие по скорости
-        sorted_good = dict(sorted(good_configs.items(), key=lambda x: x[1]))
+        if speeds:
+            self.stats['avg_speed_good'] = sum(speeds) / len(speeds)
+            self.stats['min_speed_good'] = min(speeds)
+            self.stats['max_speed_good'] = max(speeds)
         
-        # Сохраняем в out.txt (только хорошие)
-        if sorted_good:
+        # Сохраняем хорошие в out.txt
+        if good_configs:
+            sorted_good = dict(sorted(good_configs.items(), key=lambda x: x[1]))
+            
             with open(self.out_file, 'w', encoding='utf-8') as f:
                 f.write(f"# VLESS+Reality:443 с хорошей скоростью (<={self.speed_threshold}ms)\n")
                 f.write(f"# Проверено: {datetime.now().isoformat()}\n")
                 f.write("#" + "="*50 + "\n\n")
                 
                 for config, speed in sorted_good.items():
-                    # Добавляем скорость в тег
                     if '#' in config:
                         config = re.sub(r'#.*', f'#{speed:.0f}ms', config)
                     else:
@@ -361,7 +386,10 @@ class VlessProcessor:
             
             logger.info(f"Сохранено {len(sorted_good)} хороших серверов в {self.out_file}")
         
-        return sorted_good
+        # Сохраняем статистику
+        self._save_stats()
+        
+        return good_configs
 
 
 class TopSelector:
@@ -376,30 +404,26 @@ class TopSelector:
             logger.error(f"{input_file} не найден")
             return
         
-        # Читаем все конфиги
         configs = []
         with open(input_file, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    # Извлекаем скорость из тега
                     speed_match = re.search(r'#(\d+)ms', line)
                     if speed_match:
                         speed = int(speed_match.group(1))
                         configs.append((line, speed))
         
-        # Сортируем по скорости и берем топ
         configs.sort(key=lambda x: x[1])
         top_configs = configs[:top_n]
         
-        # Сохраняем
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(f"# ТОП-{top_n} лучших серверов из {input_file}\n")
             f.write(f"# Сформировано: {datetime.now().isoformat()}\n")
             f.write("#" + "="*50 + "\n\n")
             
             for i, (config, speed) in enumerate(top_configs, 1):
-                f.write(f"#{i} {speed}ms\n")
+                f.write(f"# {i:3d} | {speed}ms\n")
                 f.write(config + '\n\n')
         
         logger.info(f"Сохранено топ-{len(top_configs)} в {output_file}")
@@ -408,12 +432,16 @@ class TopSelector:
 def main():
     """Главная функция."""
     print("="*70)
-    print("VLESS+Reality COLLECTOR v3.0")
+    print("VLESS+REALITY COLLECTOR v3.1")
     print("="*70)
+    print("Файл: filter.py")
+    print("Структура: way/filter.py")
+    print("-"*70)
     print("1. Поиск подписок на GitHub → list.txt")
     print("2. Фильтр vless+reality:443 + тест 204 → out.txt (только хорошие)")
     print("3. Битые/медленные → trash.txt")
     print("4. Топ-500 лучших → 500.txt")
+    print("5. Статистика → stat.txt")
     print("="*70)
     
     # ШАГ 1: Поиск подписок на GitHub
@@ -421,17 +449,16 @@ def main():
     subscription_urls = crawler.crawl()
     
     if subscription_urls:
-        # ШАГ 2: Скачивание в list.txt
         downloader = SubscriptionDownloader()
         downloader.download_all(subscription_urls)
     else:
         logger.warning("Не найдено подписок на GitHub. Использую существующий list.txt если есть")
     
-    # ШАГ 3: Обработка list.txt
+    # ШАГ 2: Обработка list.txt
     processor = VlessProcessor()
     good_configs = processor.process()
     
-    # ШАГ 4: Формирование топ-500
+    # ШАГ 3: Формирование топ-500
     if good_configs:
         TopSelector.select_top()
     
@@ -439,8 +466,9 @@ def main():
     print("ГОТОВО!")
     print(f"- list.txt: сырые подписки с GitHub")
     print(f"- out.txt: {len(good_configs)} хороших серверов")
-    print(f"- trash.txt: битые и медленные (чтобы не перепроверять)")
+    print(f"- trash.txt: битые и медленные")
     print(f"- 500.txt: топ-500 лучших")
+    print(f"- stat.txt: статистика")
     print("="*70)
 
 
