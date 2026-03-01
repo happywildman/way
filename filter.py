@@ -2,12 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-VLESS+Reality Collector v5.3
+VLESS+Reality Collector v5.4
 ====================================
-ИСПРАВЛЕНИЯ:
-- 500.txt теперь только ссылки (совместимо с v2ray)
-- Убраны дубликаты серверов
-- Явная проверка создания list.txt
+Файловая структура:
+- sources.txt  : список RAW-ссылок на подписки
+- list.txt     : сырые непроверенные сервера
+- out.txt      : проверенные рабочие сервера (защищённые: reality, grpc, vision, ws, xhttp)
+- trash.txt    : битые и медленные
+- 500.txt      : топ-500 лучших (только ссылки)
+- stat.txt     : статистика по источникам
+
+Критерии отбора:
+- Порт 443
+- Наличие маркеров защиты: reality, pbk, fp, sni, vision, grpc, ws, xhttp, gun, quic
 ====================================
 """
 
@@ -68,6 +75,24 @@ class VlessCollector:
         
         # Статистика по источникам
         self.source_stats = {}
+        
+        # Маркеры защищённых соединений
+        self.protected_markers = [
+            'security=reality',
+            'pbk=',           # публичный ключ reality
+            'fp=',            # fingerprint
+            'sni=',           # Server Name Indication
+            'flow=xtls-rprx-vision',
+            'type=grpc',
+            'type=ws',
+            'type=xhttp',
+            'mode=gun',       # grpc
+            'mode=multi',
+            'mode=packet',
+            'mode=quic',
+            'serviceName=',   # grpc
+            'extra='
+        ]
         
     def _load_trash(self) -> Set[str]:
         """Загружает список битых серверов."""
@@ -190,7 +215,7 @@ class VlessCollector:
                     logger.error(f"  ✗ Ошибка при обработке {future_to_url[future]}: {e}")
                     results[url] = []
         
-        # ПРОВЕРКА: существует ли файл и не пустой ли он
+        # Проверка создания файла
         if os.path.exists(self.list_file):
             file_size = os.path.getsize(self.list_file)
             logger.info(f"📁 {self.list_file} создан, размер: {file_size} байт")
@@ -206,20 +231,32 @@ class VlessCollector:
         
         return results
     
-    def is_reality_port443(self, config: str) -> Tuple[bool, str]:
-        """Проверяет vless+reality и порт 443."""
+    def is_protected_config(self, config: str) -> Tuple[bool, str]:
+        """
+        Проверяет, является ли конфиг защищённым (reality, grpc, vision, ws, xhttp).
+        Возвращает (True/False, host)
+        """
         try:
-            if 'security=reality' not in config and 'reality' not in config:
-                return False, ""
-            
+            # Извлекаем хост и порт
             after_at = config.split('@')[1]
             host_part = after_at.split('?')[0]
             
             if ':' in host_part:
                 host, port = host_part.split(':')[:2]
-                return port == '443', host
+                # Проверяем порт 443
+                if port != '443':
+                    return False, ""
+            else:
+                return False, ""
+            
+            # Проверяем маркеры защиты
+            for marker in self.protected_markers:
+                if marker in config:
+                    return True, host
+            
             return False, ""
-        except:
+            
+        except Exception as e:
             return False, ""
     
     def normalize_config(self, config: str, speed: float) -> str:
@@ -328,12 +365,12 @@ class VlessCollector:
                 if config in self.trash_servers:
                     continue
                 
-                is_valid, host = self.is_reality_port443(config)
+                is_valid, host = self.is_protected_config(config)
                 if is_valid:
                     all_items.append((source_url, config, host))
                     source_totals[source_url] += 1
         
-        logger.info(f"Найдено {len(all_items)} reality:443 конфигов для проверки")
+        logger.info(f"Найдено {len(all_items)} защищённых конфигов (reality/grpc/ws/xhttp) для проверки")
         logger.info(f"Запуск проверки ({self.check_workers} потоков, TCP=3c, HTTP=6c)...")
         
         # Параллельная проверка
@@ -401,7 +438,8 @@ class VlessCollector:
         # Сохраняем out.txt (все рабочие)
         if working:
             with open(self.out_file, 'w', encoding='utf-8') as f:
-                f.write(f"# VLESS+Reality:443 с хорошей скоростью (<={self.speed_threshold}ms)\n")
+                f.write(f"# VLESS: защищённые соединения (reality/grpc/ws/xhttp)\n")
+                f.write(f"# Скорость <= {self.speed_threshold}ms\n")
                 f.write(f"# Проверено: {datetime.now().isoformat()}\n")
                 f.write(f"# Таймауты: TCP=3c, HTTP=6c\n")
                 f.write("#" + "="*50 + "\n\n")
@@ -411,7 +449,7 @@ class VlessCollector:
             
             logger.info(f"Сохранено {len(working)} рабочих серверов в {self.out_file}")
         
-        # Сохраняем топ-500 (ТОЛЬКО ССЫЛКИ, БЕЗ КОММЕНТАРИЕВ)
+        # Сохраняем топ-500 (ТОЛЬКО ССЫЛКИ)
         if working:
             # Убираем дубликаты (оставляем уникальные конфиги с наименьшим пингом)
             unique_configs = {}
@@ -439,7 +477,8 @@ class VlessCollector:
             f.write("="*60 + "\n\n")
             
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP=3c, HTTP=6c\n\n")
+            f.write(f"Таймауты: TCP=3c, HTTP=6c\n")
+            f.write(f"Типы: reality, grpc, ws, xhttp, vision\n\n")
             
             total_all = 0
             passed_all = 0
@@ -459,7 +498,7 @@ class VlessCollector:
                 percent = (stats['passed'] / stats['total'] * 100) if stats['total'] > 0 else 0
                 
                 f.write(f"📌 {url}\n")
-                f.write(f"   Total: {stats['total']}\n")
+                f.write(f"   Total защищённых: {stats['total']}\n")
                 f.write(f"   ✅ Ping passed: {stats['passed']} ({percent:.1f}%)\n")
                 f.write(f"   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
             
@@ -468,7 +507,7 @@ class VlessCollector:
             f.write("="*60 + "\n")
             
             total_percent = (passed_all / total_all * 100) if total_all > 0 else 0
-            f.write(f"Всего прокси (reality:443): {total_all}\n")
+            f.write(f"Всего защищённых прокси: {total_all}\n")
             f.write(f"✅ Прошли ping: {passed_all} ({total_percent:.1f}%)\n")
         
         logger.info(f"Статистика сохранена в {self.stat_file}")
@@ -476,15 +515,23 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 VLESS+REALITY COLLECTOR v5.3")
+        print("🚀 VLESS+REALITY COLLECTOR v5.4")
         print("="*70)
         print("ФАЙЛОВАЯ СТРУКТУРА:")
         print("  sources.txt  → список RAW-ссылок на подписки")
         print("  list.txt     → сырые непроверенные сервера")
-        print("  out.txt      → проверенные рабочие")
+        print("  out.txt      → проверенные рабочие (защищённые)")
         print("  trash.txt    → битые и медленные")
-        print("  500.txt      → топ-500 лучших (ТОЛЬКО ССЫЛКИ)")
+        print("  500.txt      → топ-500 лучших (только ссылки)")
         print("  stat.txt     → статистика по источникам")
+        print("-"*70)
+        print("ЗАЩИЩЁННЫЕ ТИПЫ:")
+        print("  • reality (security=reality, pbk=, fp=, sni=)")
+        print("  • vision (flow=xtls-rprx-vision)")
+        print("  • grpc (type=grpc, mode=gun, serviceName=)")
+        print("  • ws (type=ws)")
+        print("  • xhttp (type=xhttp)")
+        print("  • quic (mode=quic)")
         print("-"*70)
         print("ТАЙМАУТЫ: TCP=3c, HTTP=6c")
         print("="*70)
@@ -510,7 +557,7 @@ class VlessCollector:
         print("="*70)
         print(f"📁 sources.txt      - {len(sources_data)} источников")
         print(f"📁 list.txt         - все сырые сервера")
-        print(f"📁 out.txt          - {len(working)} рабочих серверов")
+        print(f"📁 out.txt          - {len(working)} рабочих (защищённых)")
         print(f"📁 500.txt          - топ-500 лучших (только ссылки)")
         print(f"📁 stat.txt         - статистика по источникам")
         print(f"📁 trash.txt        - битые и медленные")
