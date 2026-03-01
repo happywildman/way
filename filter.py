@@ -2,7 +2,7 @@
 """
 Filter - извлекает и проверяет прокси из YAML подписок
 Вход: файл 'list.txt' со списком URL YAML подписок
-Выход: out.yaml (все живые), trash.txt (мертвые), stat.txt (статистика)
+Выход: out.yaml (живые VLESS), trash.txt (мертвые), stat.txt (статистика)
 """
 
 import yaml
@@ -16,11 +16,11 @@ from collections import Counter
 from typing import List, Dict, Any, Tuple, Set
 from datetime import datetime
 
-# Версия: 4.0
+# Версия: 3.2
 # Изменения:
-# - убрана фильтрация по типу/протоколу (сохраняем ВСЕ живые прокси)
-# - добавлена отладочная информация
-# - упрощена логика проверки
+# - заменена фильтрация: теперь пропускаются ВСЕ прокси типа VLESS (любой транспорт)
+# - функция is_target_proxy() заменена на is_vless_proxy()
+# - остальная логика без изменений
 
 # Конфигурация
 TIMEOUT = 3
@@ -38,7 +38,7 @@ try:
         GEOIP_READER = geoip2.database.Reader("country.mmdb")
 except ImportError:
     GEOIP_READER = None
-    print("⚠️ geoip2 not installed. Install: pip install geoip2")
+    print("⚠️ geoip2 не установлен. Установите: pip install geoip2")
 
 # Кэш для GeoIP
 GEOIP_CACHE = {}
@@ -95,6 +95,10 @@ def fetch_yaml(url: str) -> Dict[str, Any]:
     except Exception as e:
         print(f"❌ Ошибка загрузки {url}: {e}")
         return {}
+
+def is_vless_proxy(proxy: Dict[str, Any]) -> bool:
+    """Пропускает любые прокси типа VLESS (vless)"""
+    return proxy.get('type') == 'vless'
 
 def check_proxy(server: str, port: int) -> Tuple[bool, float]:
     """
@@ -249,11 +253,11 @@ def generate_statistics(alive_proxies: List[Dict[str, Any]], response_times: Dic
     medium = len([t for t in times if 0.1 <= t < 0.3])
     slow = len([t for t in times if t >= 0.3])
     
-    # Статистика по протоколам
-    protocols = Counter()
+    # Статистика по транспорту (для VLESS)
+    transports = Counter()
     for p in alive_proxies:
-        proto = p.get('type', 'unknown')
-        protocols[proto] += 1
+        transport = p.get('network', 'tcp')
+        transports[transport] += 1
     
     # Статистика по странам
     countries = Counter()
@@ -266,10 +270,10 @@ def generate_statistics(alive_proxies: List[Dict[str, Any]], response_times: Dic
     
     lines = []
     lines.append("=" * 50)
-    lines.append("📊 STATISTICS")
+    lines.append("📊 STATISTICS (VLESS only)")
     lines.append("=" * 50)
     lines.append(f"Generated: {now}")
-    lines.append(f"Total: {total} proxies")
+    lines.append(f"Total: {total} VLESS proxies")
     lines.append("")
     
     # По времени
@@ -280,10 +284,10 @@ def generate_statistics(alive_proxies: List[Dict[str, Any]], response_times: Dic
         lines.append(f"> 300ms:   {slow:3d} ({slow/total*100:5.1f}%)")
     lines.append("")
     
-    # По протоколам
-    lines.append("📡 BY PROTOCOL:")
-    for proto, count in protocols.most_common():
-        lines.append(f"{proto:10}: {count:3d} ({count/total*100:5.1f}%)")
+    # По транспорту
+    lines.append("🚀 BY TRANSPORT:")
+    for transport, count in transports.most_common():
+        lines.append(f"{transport:10}: {count:3d} ({count/total*100:5.1f}%)")
     lines.append("")
     
     # По странам
@@ -300,7 +304,8 @@ def generate_statistics(alive_proxies: List[Dict[str, Any]], response_times: Dic
         name = p.get('name', server)[:30]
         time_ms = response_times.get(server, 0) * 1000
         country = get_country(server)
-        lines.append(f"{i:2}. {country} {time_ms:4.0f}ms - {name}")
+        transport = p.get('network', 'tcp')
+        lines.append(f"{i:2}. {country} {time_ms:4.0f}ms {transport:6} - {name}")
     
     return "\n".join(lines)
 
@@ -320,7 +325,7 @@ def main(list_file: str = "list.txt"):
     trash_set = load_trash()
     print(f"🗑️ В trash: {len(trash_set)} серверов\n")
     
-    # Собираем все прокси
+    # Собираем все VLESS прокси
     all_proxies = []
     
     for i, url in enumerate(sources, 1):
@@ -331,17 +336,17 @@ def main(list_file: str = "list.txt"):
             continue
             
         if 'proxies' in data:
-            proxies = data['proxies']
-            all_proxies.extend(proxies)
-            print(f"   → {len(proxies)} прокси")
+            # Фильтруем только VLESS
+            vless_proxies = [p for p in data['proxies'] if is_vless_proxy(p)]
+            all_proxies.extend(vless_proxies)
+            print(f"   → {len(data['proxies'])} всего, {len(vless_proxies)} VLESS")
         else:
-            # Может быть другой формат
             print(f"   → нет поля 'proxies', пропускаем")
     
-    print(f"\n📦 Всего кандидатов: {len(all_proxies)}")
+    print(f"\n📦 Всего VLESS кандидатов: {len(all_proxies)}")
     
     if not all_proxies:
-        print("❌ Нет прокси для проверки")
+        print("❌ Нет VLESS прокси для проверки")
         return
     
     # Проверяем
@@ -352,7 +357,7 @@ def main(list_file: str = "list.txt"):
     if alive:
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             yaml.dump({'proxies': alive}, f, allow_unicode=True, sort_keys=False)
-        print(f"\n✅ Сохранено {len(alive)} живых в {OUTPUT_FILE}")
+        print(f"\n✅ Сохранено {len(alive)} живых VLESS в {OUTPUT_FILE}")
         
         # Статистика
         stats = generate_statistics(alive, times)
@@ -362,17 +367,17 @@ def main(list_file: str = "list.txt"):
         
         # Краткий отчет
         print(f"\n📈 Итого:")
-        print(f"   Живые: {len(alive)}")
+        print(f"   Живые VLESS: {len(alive)}")
         print(f"   Мертвые: {len(dead)}")
         
     else:
-        print("\n❌ Нет живых прокси")
+        print("\n❌ Нет живых VLESS прокси")
         if dead:
             print(f"   {len(dead)} мертвых добавлены в {TRASH_FILE}")
 
 if __name__ == "__main__":
     list_file = sys.argv[1] if len(sys.argv) > 1 else "list.txt"
     print("=" * 50)
-    print("🔍 Filter v4.0")
+    print("🔍 Filter v3.2 - VLESS only")
     print("=" * 50)
     main(list_file)
