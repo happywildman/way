@@ -2,16 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-VLESS+Reality Collector v3.1
+VLESS+Reality Collector v3.2
 ====================================
 Файл: filter.py
 Структура: way/filter.py
 
-1. Сбор ВСЕХ vless подписок с GitHub → list.txt
+1. Чтение list.txt (сырые подписки)
 2. Фильтр vless+reality:443 + тест 204 (только хорошие) → out.txt
 3. Битые/медленные → trash.txt
 4. Топ-500 лучших из out.txt → 500.txt
-5. Статистика → stat.txt
+5. Детальная статистика по каждому источнику → stat.txt (с эмодзи)
 ====================================
 """
 
@@ -27,6 +27,7 @@ import json
 import base64
 from urllib.parse import urlparse, quote
 import socket
+from collections import defaultdict
 
 # Настройка логирования
 logging.basicConfig(
@@ -37,141 +38,52 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class GitHubCrawler:
-    """Сборщик vless подписок с GitHub."""
+class StatsManager:
+    """Управление статистикой по источникам между запусками."""
     
-    GITHUB_RAW_PATTERNS = [
-        'https://raw.githubusercontent.com/{repo}/main/{path}',
-        'https://raw.githubusercontent.com/{repo}/master/{path}',
-        'https://github.com/{repo}/raw/main/{path}',
-        'https://github.com/{repo}/raw/master/{path}'
-    ]
+    def __init__(self, history_file: str = 'stats_history.json'):
+        self.history_file = history_file
+        self.stats = self._load_history()
     
-    def __init__(self, timeout: int = 10, user_agent: str = 'Mozilla/5.0'):
-        self.timeout = timeout
-        self.user_agent = user_agent
-        self.found_subscriptions: Set[str] = set()
-        
-    def search_gitlab(self):
-        """Поиск по GitLab (альтернативный источник)."""
-        gitlab_search_urls = [
-            'https://gitlab.com/api/v4/projects?search=vless',
-            'https://gitlab.com/api/v4/projects?search=reality',
-            'https://gitlab.com/api/v4/projects?search=subscription'
-        ]
-        
-        for url in gitlab_search_urls:
+    def _load_history(self) -> Dict:
+        """Загружает историю статистики из JSON."""
+        if os.path.exists(self.history_file):
             try:
-                req = urllib.request.Request(url, headers={'User-Agent': self.user_agent})
-                with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                    projects = json.loads(response.read())
-                    for project in projects[:10]:
-                        if 'vless' in project['name'].lower() or 'subscription' in project['name'].lower():
-                            for ext in ['.txt', '.yaml', '.yml', '.json']:
-                                raw_url = f"https://gitlab.com/{project['path_with_namespace']}/-/raw/main/sub{ext}"
-                                self.found_subscriptions.add(raw_url)
-                                raw_url = f"https://gitlab.com/{project['path_with_namespace']}/-/raw/master/config{ext}"
-                                self.found_subscriptions.add(raw_url)
-            except Exception as e:
-                logger.debug(f"GitLab search error: {e}")
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
     
-    def search_common_repos(self):
-        """Поиск по известным репозиториям."""
-        known_repos = [
-            ('v2ray-config', 'vless'),
-            ('v2ray-subscription', 'main'),
-            ('v2ray-configs', 'master'),
-            ('free-v2ray', 'main'),
-            ('v2ray-collector', 'master'),
-            ('vless-reality', 'main'),
-            ('v2ray-sub', 'master'),
-            ('v2ray-config-list', 'main')
-        ]
-        
-        keywords = ['sub', 'vless', 'config', 'subscription', 'v2ray', 'reality']
-        extensions = ['.txt', '.yaml', '.yml', '.json']
-        
-        for repo, branch in known_repos:
-            for keyword in keywords:
-                for ext in extensions:
-                    url = f"https://raw.githubusercontent.com/{repo}/{branch}/{keyword}{ext}"
-                    self.found_subscriptions.add(url)
-                    url = f"https://raw.githubusercontent.com/{repo}/{branch}/v2ray{ext}"
-                    self.found_subscriptions.add(url)
-                    url = f"https://raw.githubusercontent.com/{repo}/{branch}/config{ext}"
-                    self.found_subscriptions.add(url)
+    def _save_history(self):
+        """Сохраняет историю статистики в JSON."""
+        with open(self.history_file, 'w', encoding='utf-8') as f:
+            json.dump(self.stats, f, indent=2, ensure_ascii=False)
     
-    def crawl(self) -> List[str]:
-        """Запуск поиска подписок на GitHub."""
-        logger.info("Начинаю поиск vless подписок на GitHub...")
+    def update_source_stats(self, source_url: str, total: int, passed: int, avg_ping: float):
+        """Обновляет статистику для одного источника."""
+        if source_url not in self.stats:
+            self.stats[source_url] = []
         
-        self.search_common_repos()
-        self.search_gitlab()
+        # Добавляем новую запись
+        self.stats[source_url].append({
+            'timestamp': datetime.now().isoformat(),
+            'total': total,
+            'passed': passed,
+            'avg_ping': round(avg_ping, 1) if avg_ping > 0 else 0
+        })
         
-        public_subs = [
-            'https://raw.githubusercontent.com/v2ray-config/v2ray-config/main/vless.txt',
-            'https://raw.githubusercontent.com/free-v2ray-config/free-v2ray-config/main/sub.txt',
-            'https://raw.githubusercontent.com/v2ray-subscription/v2ray-subscription/master/config.txt'
-        ]
-        self.found_subscriptions.update(public_subs)
+        # Оставляем только последние 30 записей (месяц при ежедневном запуске)
+        if len(self.stats[source_url]) > 30:
+            self.stats[source_url] = self.stats[source_url][-30:]
         
-        logger.info(f"Найдено {len(self.found_subscriptions)} потенциальных подписок")
-        return list(self.found_subscriptions)
-
-
-class SubscriptionDownloader:
-    """Скачивание подписок в list.txt."""
+        self._save_history()
     
-    def __init__(self, output_file: str = 'list.txt', timeout: int = 10):
-        self.output_file = output_file
-        self.timeout = timeout
-        self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        
-    def download_subscription(self, url: str) -> Optional[str]:
-        """Скачивает одну подписку."""
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': self.user_agent})
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                content = response.read()
-                
-                try:
-                    return content.decode('utf-8')
-                except UnicodeDecodeError:
-                    try:
-                        return content.decode('latin-1')
-                    except:
-                        return content.decode('utf-8', errors='ignore')
-        except Exception as e:
-            logger.debug(f"Не удалось скачать {url}: {e}")
-            return None
-    
-    def download_all(self, urls: List[str]) -> int:
-        """Скачивает все найденные подписки в list.txt."""
-        downloaded = 0
-        
-        with open(self.output_file, 'w', encoding='utf-8') as f:
-            f.write(f"# Сырые vless подписки с GitHub\n")
-            f.write(f"# Собрано: {datetime.now().isoformat()}\n")
-            f.write("#" + "="*50 + "\n\n")
-        
-        for i, url in enumerate(urls, 1):
-            logger.info(f"[{i}/{len(urls)}] Скачиваю: {url}")
-            
-            content = self.download_subscription(url)
-            if content:
-                with open(self.output_file, 'a', encoding='utf-8') as f:
-                    f.write(f"\n# ИСТОЧНИК: {url}\n")
-                    f.write(content)
-                    if not content.endswith('\n'):
-                        f.write('\n')
-                    f.write("\n" + "#"*50 + "\n")
-                downloaded += 1
-            
-            if i < len(urls):
-                time.sleep(2)
-        
-        logger.info(f"Скачано {downloaded} подписок в {self.output_file}")
-        return downloaded
+    def get_last_stats(self, source_url: str) -> Optional[Dict]:
+        """Возвращает последнюю статистику для источника."""
+        if source_url in self.stats and self.stats[source_url]:
+            return self.stats[source_url][-1]
+        return None
 
 
 class VlessProcessor:
@@ -192,20 +104,11 @@ class VlessProcessor:
         self.timeout = 5
         self.user_agent = 'Mozilla/5.0'
         
-        # Статистика
-        self.stats = {
-            'timestamp': datetime.now().isoformat(),
-            'total_vless_found': 0,
-            'reality_port443': 0,
-            'tested': 0,
-            'good': 0,
-            'bad': 0,
-            'slow': 0,
-            'avg_speed_good': 0,
-            'min_speed_good': 0,
-            'max_speed_good': 0,
-            'threshold_ms': speed_threshold
-        }
+        # Менеджер статистики
+        self.stats_manager = StatsManager()
+        
+        # Статистика по источникам для текущего запуска
+        self.source_stats = defaultdict(lambda: {'total': 0, 'passed': 0, 'pings': []})
         
     def _load_trash(self) -> Set[str]:
         """Загружает trash.txt."""
@@ -215,7 +118,6 @@ class VlessProcessor:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith('#'):
-                        # Убираем комментарии после ссылки
                         config = line.split('#')[0].strip()
                         if config:
                             trash.add(config)
@@ -228,53 +130,45 @@ class VlessProcessor:
             with open(self.trash_file, 'a', encoding='utf-8') as f:
                 f.write(f"{config} # {reason}\n")
     
-    def _save_stats(self):
-        """Сохраняет статистику в stat.txt."""
-        with open(self.stat_file, 'w', encoding='utf-8') as f:
-            f.write("="*60 + "\n")
-            f.write("СТАТИСТИКА VLESS+REALITY COLLECTOR\n")
-            f.write("="*60 + "\n\n")
-            
-            f.write(f"Время проверки: {self.stats['timestamp']}\n")
-            f.write(f"Порог скорости: {self.stats['threshold_ms']}ms\n\n")
-            
-            f.write(f"Всего vless ссылок найдено: {self.stats['total_vless_found']}\n")
-            f.write(f"Из них reality:443: {self.stats['reality_port443']}\n")
-            f.write(f"Протестировано: {self.stats['tested']}\n")
-            f.write(f"  ✅ Хороших: {self.stats['good']}\n")
-            f.write(f"  ❌ Битых: {self.stats['bad']}\n")
-            f.write(f"  ⚠ Медленных (>={self.stats['threshold_ms']}ms): {self.stats['slow']}\n\n")
-            
-            if self.stats['good'] > 0:
-                f.write(f"Средняя скорость хороших: {self.stats['avg_speed_good']:.0f}ms\n")
-                f.write(f"Минимальная: {self.stats['min_speed_good']:.0f}ms\n")
-                f.write(f"Максимальная: {self.stats['max_speed_good']:.0f}ms\n")
+    def _extract_source_url(self, content_block: str) -> Optional[str]:
+        """Извлекает URL источника из комментария в list.txt."""
+        match = re.search(r'# ИСТОЧНИК:\s*(.+)', content_block)
+        return match.group(1) if match else None
     
-    def extract_vless_from_file(self) -> List[str]:
-        """Извлекает ВСЕ vless ссылки из list.txt."""
+    def parse_list_file(self) -> Dict[str, List[str]]:
+        """
+        Парсит list.txt, возвращает словарь {источник: [конфиги]}.
+        Учитывает разделители между источниками.
+        """
         if not os.path.exists(self.input_file):
             logger.error(f"{self.input_file} не найден")
-            return []
-        
-        vless_pattern = r'vless://[a-f0-9-]+@[^#\s]+(?:#[^\s]*)?'
-        all_vless = []
+            return {}
         
         with open(self.input_file, 'r', encoding='utf-8') as f:
             content = f.read()
-            
-            if re.match(r'^[A-Za-z0-9+/=]+$', content[:100].replace('\n', '')):
-                try:
-                    content = base64.b64decode(content).decode('utf-8', errors='ignore')
-                except:
-                    pass
-            
-            found = re.findall(vless_pattern, content)
-            all_vless.extend(found)
         
-        unique_vless = list(set(all_vless))
-        self.stats['total_vless_found'] = len(unique_vless)
-        logger.info(f"Найдено {len(unique_vless)} уникальных vless ссылок в {self.input_file}")
-        return unique_vless
+        # Разделяем по блокам источников (разделитель "#"*50)
+        blocks = re.split(r'#{50,}', content)
+        
+        sources = {}
+        vless_pattern = r'vless://[a-f0-9-]+@[^#\s]+(?:#[^\s]*)?'
+        
+        for block in blocks:
+            if not block.strip():
+                continue
+            
+            # Извлекаем URL источника из первой строки блока
+            source_url = self._extract_source_url(block)
+            
+            # Ищем все vless ссылки в блоке
+            configs = re.findall(vless_pattern, block)
+            
+            if source_url and configs:
+                sources[source_url] = list(set(configs))  # уникальные
+                logger.debug(f"Источник {source_url}: {len(configs)} конфигов")
+        
+        logger.info(f"Найдено {len(sources)} источников в {self.input_file}")
+        return sources
     
     def is_reality_port443(self, config: str) -> Tuple[bool, str]:
         """Проверка vless+reality и порт 443, возвращает хост."""
@@ -316,80 +210,158 @@ class VlessProcessor:
         except Exception as e:
             return False, float('inf')
     
-    def process(self) -> Dict[str, float]:
-        """Обрабатывает list.txt и возвращает хорошие конфиги."""
-        all_vless = self.extract_vless_from_file()
+    def process_source(self, source_url: str, configs: List[str]) -> List[str]:
+        """
+        Обрабатывает один источник:
+        - фильтр reality:443
+        - тест скорости
+        - собирает статистику
+        Возвращает список рабочих конфигов из этого источника.
+        """
+        working = []
         
-        # Фильтр reality:443
-        candidates = []
-        for config in all_vless:
+        # Собираем статистику по источнику
+        source_total = 0
+        source_passed = 0
+        source_pings = []
+        
+        for config in configs:
+            # Пропускаем если уже в trash
             if config in self.trash_servers:
                 continue
-                
+            
+            # Проверка reality:443
             is_valid, host = self.is_reality_port443(config)
-            if is_valid:
-                candidates.append((config, host))
-        
-        self.stats['reality_port443'] = len(candidates)
-        logger.info(f"После фильтра reality:443 осталось {len(candidates)} кандидатов")
-        
-        # Тест скорости
-        good_configs = {}
-        speeds = []
-        bad_count = 0
-        slow_count = 0
-        
-        for i, (config, host) in enumerate(candidates, 1):
-            logger.info(f"[{i}/{len(candidates)}] Тест {host}")
+            if not is_valid:
+                continue
             
+            source_total += 1
+            
+            # Тест скорости
             is_working, speed = self.test_204_speed(host)
-            self.stats['tested'] += 1
             
-            if is_working:
-                if speed <= self.speed_threshold:
-                    good_configs[config] = speed
-                    speeds.append(speed)
-                    logger.info(f"  ✅ {speed:.0f}ms (ХОРОШИЙ)")
-                else:
-                    slow_count += 1
-                    self._save_to_trash(config, f"медленный {speed:.0f}ms")
-                    logger.info(f"  ⚠ {speed:.0f}ms (МЕДЛЕННЫЙ)")
+            if is_working and speed <= self.speed_threshold:
+                working.append(config)
+                source_passed += 1
+                source_pings.append(speed)
+                logger.debug(f"  ✅ {host} - {speed:.0f}ms")
             else:
-                bad_count += 1
-                self._save_to_trash(config, "битый")
-                logger.info(f"  ❌ БИТЫЙ")
+                reason = "битый" if not is_working else f"медленный {speed:.0f}ms"
+                self._save_to_trash(config, reason)
+                logger.debug(f"  ❌ {host} - {reason}")
         
-        self.stats['good'] = len(good_configs)
-        self.stats['bad'] = bad_count
-        self.stats['slow'] = slow_count
+        # Сохраняем статистику источника
+        avg_ping = sum(source_pings) / len(source_pings) if source_pings else 0
+        self.source_stats[source_url] = {
+            'total': source_total,
+            'passed': source_passed,
+            'avg_ping': avg_ping
+        }
         
-        if speeds:
-            self.stats['avg_speed_good'] = sum(speeds) / len(speeds)
-            self.stats['min_speed_good'] = min(speeds)
-            self.stats['max_speed_good'] = max(speeds)
+        # Обновляем историю
+        self.stats_manager.update_source_stats(source_url, source_total, source_passed, avg_ping)
         
-        # Сохраняем хорошие в out.txt
-        if good_configs:
-            sorted_good = dict(sorted(good_configs.items(), key=lambda x: x[1]))
+        logger.info(f"Источник {source_url}: {source_passed}/{source_total} прошли (avg {avg_ping:.0f}ms)")
+        
+        return working
+    
+    def _save_stats(self, all_working: List[str]):
+        """Сохраняет статистику в stat.txt в формате с эмодзи."""
+        with open(self.stat_file, 'w', encoding='utf-8') as f:
+            f.write("="*60 + "\n")
+            f.write("📊 СТАТИСТИКА ПО ИСТОЧНИКАМ ПРОКСИ\n")
+            f.write("="*60 + "\n\n")
             
+            f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            total_all = 0
+            passed_all = 0
+            
+            # Сортируем источники по проценту прошедших (для удобства)
+            sorted_sources = sorted(
+                self.source_stats.items(),
+                key=lambda x: (x[1]['passed'] / x[1]['total']) if x[1]['total'] > 0 else 0,
+                reverse=True
+            )
+            
+            for source_url, stats in sorted_sources:
+                total = stats['total']
+                passed = stats['passed']
+                avg_ping = stats['avg_ping']
+                
+                if total == 0:
+                    continue
+                
+                percent = (passed / total * 100) if total > 0 else 0
+                total_all += total
+                passed_all += passed
+                
+                f.write(f"📌 {source_url}\n")
+                f.write(f"   Total: {total}\n")
+                f.write(f"   ✅ Ping passed: {passed} ({percent:.1f}%)\n")
+                f.write(f"   ⚡ Avg ping: {avg_ping:.0f}ms\n\n")
+            
+            f.write("="*60 + "\n")
+            f.write("📈 ОБЩАЯ СТАТИСТИКА\n")
+            f.write("="*60 + "\n")
+            
+            total_percent = (passed_all / total_all * 100) if total_all > 0 else 0
+            f.write(f"Всего прокси: {total_all}\n")
+            f.write(f"✅ Прошли ping: {passed_all} ({total_percent:.1f}%)\n")
+            
+            # Информация о лучших источниках
+            if self.source_stats:
+                best_source = max(
+                    self.source_stats.items(),
+                    key=lambda x: (x[1]['passed'] / x[1]['total']) if x[1]['total'] > 0 else 0
+                )
+                best_url, best_stats = best_source
+                best_percent = (best_stats['passed'] / best_stats['total'] * 100) if best_stats['total'] > 0 else 0
+                
+                f.write(f"\n🏆 Лучший источник: {best_percent:.1f}% прохождения\n")
+                f.write(f"   {best_url}\n")
+        
+        logger.info(f"Статистика сохранена в {self.stat_file}")
+    
+    def process(self) -> List[str]:
+        """
+        Основной процесс обработки.
+        Возвращает список всех рабочих конфигов.
+        """
+        # Парсим list.txt по источникам
+        sources = self.parse_list_file()
+        if not sources:
+            logger.error("Нет источников для обработки")
+            return []
+        
+        all_working = []
+        
+        # Обрабатываем каждый источник
+        for source_url, configs in sources.items():
+            logger.info(f"Обработка источника: {source_url}")
+            working = self.process_source(source_url, configs)
+            all_working.extend(working)
+        
+        # Убираем дубликаты между источниками
+        all_working = list(set(all_working))
+        
+        # Сохраняем out.txt (все рабочие)
+        if all_working:
+            # Сортируем по скорости (нужно будет извлечь из тегов)
             with open(self.out_file, 'w', encoding='utf-8') as f:
                 f.write(f"# VLESS+Reality:443 с хорошей скоростью (<={self.speed_threshold}ms)\n")
                 f.write(f"# Проверено: {datetime.now().isoformat()}\n")
                 f.write("#" + "="*50 + "\n\n")
                 
-                for config, speed in sorted_good.items():
-                    if '#' in config:
-                        config = re.sub(r'#.*', f'#{speed:.0f}ms', config)
-                    else:
-                        config = f"{config}#{speed:.0f}ms"
+                for config in all_working:
                     f.write(config + '\n')
             
-            logger.info(f"Сохранено {len(sorted_good)} хороших серверов в {self.out_file}")
+            logger.info(f"Сохранено {len(all_working)} рабочих серверов в {self.out_file}")
         
         # Сохраняем статистику
-        self._save_stats()
+        self._save_stats(all_working)
         
-        return good_configs
+        return all_working
 
 
 class TopSelector:
@@ -409,11 +381,13 @@ class TopSelector:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
+                    # Извлекаем скорость из тега (если есть)
                     speed_match = re.search(r'#(\d+)ms', line)
                     if speed_match:
                         speed = int(speed_match.group(1))
                         configs.append((line, speed))
         
+        # Сортируем по скорости
         configs.sort(key=lambda x: x[1])
         top_configs = configs[:top_n]
         
@@ -432,43 +406,39 @@ class TopSelector:
 def main():
     """Главная функция."""
     print("="*70)
-    print("VLESS+REALITY COLLECTOR v3.1")
+    print("VLESS+REALITY COLLECTOR v3.2")
     print("="*70)
     print("Файл: filter.py")
     print("Структура: way/filter.py")
     print("-"*70)
-    print("1. Поиск подписок на GitHub → list.txt")
-    print("2. Фильтр vless+reality:443 + тест 204 → out.txt (только хорошие)")
+    print("1. Чтение list.txt (сырые подписки)")
+    print("2. Фильтр vless+reality:443 + тест 204 → out.txt")
     print("3. Битые/медленные → trash.txt")
     print("4. Топ-500 лучших → 500.txt")
-    print("5. Статистика → stat.txt")
+    print("5. Детальная статистика по источникам → stat.txt (с эмодзи)")
     print("="*70)
     
-    # ШАГ 1: Поиск подписок на GitHub
-    crawler = GitHubCrawler()
-    subscription_urls = crawler.crawl()
+    # Проверяем наличие list.txt
+    if not os.path.exists('list.txt'):
+        logger.error("Файл list.txt не найден!")
+        return
     
-    if subscription_urls:
-        downloader = SubscriptionDownloader()
-        downloader.download_all(subscription_urls)
-    else:
-        logger.warning("Не найдено подписок на GitHub. Использую существующий list.txt если есть")
-    
-    # ШАГ 2: Обработка list.txt
+    # Обработка
     processor = VlessProcessor()
-    good_configs = processor.process()
+    working_configs = processor.process()
     
-    # ШАГ 3: Формирование топ-500
-    if good_configs:
+    # Формирование топ-500
+    if working_configs:
         TopSelector.select_top()
     
     print("="*70)
     print("ГОТОВО!")
-    print(f"- list.txt: сырые подписки с GitHub")
-    print(f"- out.txt: {len(good_configs)} хороших серверов")
+    print(f"- list.txt: сырые подписки ({len(processor.parse_list_file())} источников)")
+    print(f"- out.txt: {len(working_configs)} хороших серверов")
     print(f"- trash.txt: битые и медленные")
     print(f"- 500.txt: топ-500 лучших")
-    print(f"- stat.txt: статистика")
+    print(f"- stat.txt: детальная статистика по источникам")
+    print(f"- stats_history.json: история статистики (для анализа динамики)")
     print("="*70)
 
 
