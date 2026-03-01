@@ -2,7 +2,7 @@
 """
 Filter - извлекает и проверяет прокси из YAML подписок
 Вход: файл 'list.txt' со списком URL YAML подписок
-Выход: out.yaml (только живые, в формате Clash), trash.txt (мертвые), stat.txt (статистика)
+Выход: out.yaml (все живые), trash.txt (мертвые), stat.txt (статистика)
 """
 
 import yaml
@@ -11,220 +11,79 @@ import sys
 import os
 import threading
 import time
-import json
 import socket
-import struct
 from collections import Counter
-from typing import List, Dict, Any, Tuple, Set, Optional
+from typing import List, Dict, Any, Tuple, Set
 from datetime import datetime
-from urllib.parse import urlparse
 
-# Версия: 3.1
-# Изменения: 
-# - заменен внешний API GeoIP на локальную базу .mmdb
-# - добавлено авто-обновление GeoIP из внешнего репозитория
-# - убраны внешние запросы при проверке (только локальная работа)
+# Версия: 4.0
+# Изменения:
+# - убрана фильтрация по типу/протоколу (сохраняем ВСЕ живые прокси)
+# - добавлена отладочная информация
+# - упрощена логика проверки
 
 # Конфигурация
-TIMEOUT = 3  # таймаут проверки в секундах
-MAX_WORKERS = 5  # уменьшено для GitHub Actions
+TIMEOUT = 3
+MAX_WORKERS = 5
 TRASH_FILE = "trash.txt"
 OUTPUT_FILE = "out.yaml"
 STAT_FILE = "stat.txt"
-MAX_RUNTIME = 60 * 60  # максимальное время выполнения в секундах (1 час)
+MAX_RUNTIME = 60 * 60
 
-# GeoIP конфигурация
-GEOIP_REPO = "https://raw.githubusercontent.com/Loyalsoldier/geoip/release"  # публичный репозиторий с GeoIP
-GEOIP_FILES = {
-    "country.mmdb": f"{GEOIP_REPO}/country.mmdb",
-    "GeoIP2-Country.mmdb": "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"  # резервный источник
-}
-GEOIP_LOCAL = "country.mmdb"  # локальный файл базы
-
-# Попытка импорта GeoIP2 (необязательная зависимость)
+# GeoIP
 try:
     import geoip2.database
-    GEOIP_AVAILABLE = True
+    GEOIP_READER = None
+    if os.path.exists("country.mmdb"):
+        GEOIP_READER = geoip2.database.Reader("country.mmdb")
 except ImportError:
-    GEOIP_AVAILABLE = False
-    print("⚠️  geoip2 не установлен. Установите: pip install geoip2")
-    print("   Без GeoIP страны будут определяться по TLD\n")
-
-# Типы транспорта для VLESS
-TRANSPORT_PATTERNS = {
-    'reality_tcp': {
-        'name': 'VLESS + TCP + Reality (+ Vision)',
-        'check': lambda p: (
-            p.get('type') == 'vless' and 
-            p.get('network', 'tcp') == 'tcp' and
-            p.get('security') == 'reality' and
-            p.get('flow') in ['xtls-rprx-vision', 'xtls-rprx-vision-udp443']
-        )
-    },
-    'reality_grpc': {
-        'name': 'VLESS + gRPC / HTTP2 (H2)',
-        'check': lambda p: (
-            p.get('type') == 'vless' and 
-            p.get('network') == 'grpc' and
-            p.get('security') == 'reality'
-        )
-    },
-    'reality_xhttp': {
-        'name': 'VLESS + xHTTP',
-        'check': lambda p: (
-            p.get('type') == 'vless' and 
-            p.get('network') == 'xhttp' and
-            p.get('security') == 'reality'
-        )
-    }
-}
+    GEOIP_READER = None
+    print("⚠️ geoip2 not installed. Install: pip install geoip2")
 
 # Кэш для GeoIP
-geoip_cache = {}
-geoip_reader = None
+GEOIP_CACHE = {}
 
-def init_geoip():
-    """Инициализирует GeoIP базу (загружает если нет)"""
-    global geoip_reader
-    
-    if not GEOIP_AVAILABLE:
-        return False
-    
-    # Проверяем наличие локального файла
-    if os.path.exists(GEOIP_LOCAL):
-        try:
-            geoip_reader = geoip2.database.Reader(GEOIP_LOCAL)
-            print(f"✅ GeoIP база загружена: {GEOIP_LOCAL}")
-            return True
-        except Exception as e:
-            print(f"⚠️  Ошибка загрузки GeoIP: {e}")
-    
-    # Если файла нет, пробуем скачать
-    print(f"📥 GeoIP база не найдена, пробуем скачать...")
-    return download_geoip()
+# Карта флагов
+FLAG_MAP = {
+    'us': '🇺🇸', 'uk': '🇬🇧', 'gb': '🇬🇧', 'de': '🇩🇪', 'fr': '🇫🇷',
+    'nl': '🇳🇱', 'sg': '🇸🇬', 'jp': '🇯🇵', 'ca': '🇨🇦', 'au': '🇦🇺',
+    'ru': '🇷🇺', 'cn': '🇨🇳', 'br': '🇧🇷', 'in': '🇮🇳', 'kr': '🇰🇷',
+    'it': '🇮🇹', 'es': '🇪🇸', 'se': '🇸🇪', 'no': '🇳🇴', 'dk': '🇩🇰',
+    'fi': '🇫🇮', 'ch': '🇨🇭', 'at': '🇦🇹', 'be': '🇧🇪', 'pl': '🇵🇱',
+    'cz': '🇨🇿', 'za': '🇿🇦', 'mx': '🇲🇽', 'ar': '🇦🇷', 'il': '🇮🇱',
+    'tr': '🇹🇷', 'ae': '🇦🇪', 'sa': '🇸🇦', 'cy': '🇨🇾'
+}
 
-def download_geoip() -> bool:
-    """Скачивает GeoIP базу из репозитория"""
-    global geoip_reader
+def get_country(host: str) -> str:
+    """Определяет страну по IP или домену"""
+    if host in GEOIP_CACHE:
+        return GEOIP_CACHE[host]
     
-    for filename, url in GEOIP_FILES.items():
+    # Пытаемся через GeoIP
+    if GEOIP_READER and not host.replace('.', '').isdigit():
         try:
-            print(f"   Пробуем {url}...")
-            resp = requests.get(url, timeout=30, stream=True)
-            resp.raise_for_status()
-            
-            # Сохраняем файл
-            with open(GEOIP_LOCAL, 'wb') as f:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            print(f"✅ Скачано: {GEOIP_LOCAL}")
-            
-            # Загружаем базу
-            if GEOIP_AVAILABLE:
-                geoip_reader = geoip2.database.Reader(GEOIP_LOCAL)
-            return True
-            
-        except Exception as e:
-            print(f"   ❌ Ошибка: {e}")
-            continue
-    
-    print("⚠️  Не удалось скачать GeoIP базу. Будет использовано определение по TLD.")
-    return False
-
-def get_domain_tld(domain: str) -> str:
-    """Извлекает TLD из домена для приблизительного определения страны"""
-    try:
-        parts = domain.split('.')
-        if len(parts) >= 2:
-            tld = parts[-1].lower()
-            # Специальные домены верхнего уровня
-            if tld in ['com', 'org', 'net', 'info']:
-                # Для популярных TLD пытаемся определить по второму уровню
-                if len(parts) >= 3:
-                    return parts[-2].lower()[:2]  # example.com.ru -> ru
-                return 'unknown'
-            return tld
-    except:
-        pass
-    return 'unknown'
-
-def get_country_from_ip(ip_or_domain: str) -> str:
-    """Определяет страну по IP или домену используя локальную GeoIP базу"""
-    global geoip_reader
-    
-    # Проверяем кэш
-    if ip_or_domain in geoip_cache:
-        return geoip_cache[ip_or_domain]
-    
-    # Пытаемся получить IP если это домен
-    ip_address = ip_or_domain
-    if not ip_or_domain.replace('.', '').isdigit():  # это домен, не IP
-        try:
-            ip_address = socket.gethostbyname(ip_or_domain)
-        except:
-            # Если не получаем IP, используем TLD
-            tld = get_domain_tld(ip_or_domain)
-            result = get_country_by_tld(tld)
-            geoip_cache[ip_or_domain] = result
-            return result
-    
-    # Используем GeoIP если доступен
-    if geoip_reader:
-        try:
-            response = geoip_reader.country(ip_address)
-            country_code = response.country.iso_code
-            country_name = response.country.name
-            flag = get_flag_from_code(country_code)
-            result = f"{flag} {country_name}" if flag else country_name
-            geoip_cache[ip_or_domain] = result
+            ip = socket.gethostbyname(host)
+            response = GEOIP_READER.country(ip)
+            code = response.country.iso_code.lower()
+            flag = FLAG_MAP.get(code, '🌍')
+            name = response.country.name
+            result = f"{flag} {name}"
+            GEOIP_CACHE[host] = result
             return result
         except Exception:
             pass
     
-    # Если GeoIP не сработал, пробуем TLD
-    if not ip_or_domain.replace('.', '').isdigit():
-        tld = get_domain_tld(ip_or_domain)
-        result = get_country_by_tld(tld)
-        geoip_cache[ip_or_domain] = result
-        return result
+    # Пробуем по TLD
+    if '.' in host:
+        tld = host.split('.')[-1].lower()
+        if tld in FLAG_MAP:
+            result = f"{FLAG_MAP[tld]} {tld.upper()}"
+            GEOIP_CACHE[host] = result
+            return result
     
-    geoip_cache[ip_or_domain] = '🌍 Unknown'
-    return '🌍 Unknown'
-
-def get_country_by_tld(tld: str) -> str:
-    """Определяет страну по TLD домена (заглушка для случаев без GeoIP)"""
-    tld_map = {
-        'us': '🇺🇸 USA', 'uk': '🇬🇧 UK', 'gb': '🇬🇧 UK', 'de': '🇩🇪 Germany',
-        'fr': '🇫🇷 France', 'nl': '🇳🇱 Netherlands', 'sg': '🇸🇬 Singapore',
-        'jp': '🇯🇵 Japan', 'ca': '🇨🇦 Canada', 'au': '🇦🇺 Australia',
-        'ru': '🇷🇺 Russia', 'cn': '🇨🇳 China', 'br': '🇧🇷 Brazil',
-        'in': '🇮🇳 India', 'kr': '🇰🇷 Korea', 'it': '🇮🇹 Italy',
-        'es': '🇪🇸 Spain', 'se': '🇸🇪 Sweden', 'no': '🇳🇴 Norway',
-        'dk': '🇩🇰 Denmark', 'fi': '🇫🇮 Finland', 'ch': '🇨🇭 Switzerland',
-        'at': '🇦🇹 Austria', 'be': '🇧🇪 Belgium', 'pl': '🇵🇱 Poland',
-        'cz': '🇨🇿 Czech', 'za': '🇿🇦 South Africa', 'mx': '🇲🇽 Mexico'
-    }
-    return tld_map.get(tld, '🌍 Unknown')
-
-def get_flag_from_code(code: str) -> str:
-    """Конвертирует код страны в эмодзи флага"""
-    flag_map = {
-        'US': '🇺🇸', 'GB': '🇬🇧', 'DE': '🇩🇪', 'FR': '🇫🇷', 'NL': '🇳🇱',
-        'SG': '🇸🇬', 'JP': '🇯🇵', 'CA': '🇨🇦', 'AU': '🇦🇺', 'RU': '🇷🇺',
-        'CN': '🇨🇳', 'BR': '🇧🇷', 'IN': '🇮🇳', 'KR': '🇰🇷', 'IT': '🇮🇹',
-        'ES': '🇪🇸', 'SE': '🇸🇪', 'NO': '🇳🇴', 'DK': '🇩🇰', 'FI': '🇫🇮',
-        'CH': '🇨🇭', 'AT': '🇦🇹', 'BE': '🇧🇪', 'PL': '🇵🇱', 'CZ': '🇨🇿',
-        'ZA': '🇿🇦', 'MX': '🇲🇽', 'AR': '🇦🇷', 'IL': '🇮🇱', 'TR': '🇹🇷'
-    }
-    return flag_map.get(code, '')
-
-def detect_transport_type(proxy: Dict[str, Any]) -> str:
-    """Определяет тип транспорта прокси"""
-    for key, pattern in TRANSPORT_PATTERNS.items():
-        if pattern['check'](proxy):
-            return pattern['name']
-    return 'Unknown'
+    result = '🌍 Unknown'
+    GEOIP_CACHE[host] = result
+    return result
 
 def fetch_yaml(url: str) -> Dict[str, Any]:
     """Скачивает и парсит YAML подписку"""
@@ -237,30 +96,14 @@ def fetch_yaml(url: str) -> Dict[str, Any]:
         print(f"❌ Ошибка загрузки {url}: {e}")
         return {}
 
-def is_target_proxy(proxy: Dict[str, Any]) -> bool:
-    """Проверяет, подходит ли прокси под критерии отбора (Reality)"""
-    if proxy.get('type') != 'vless':
-        return False
-    if proxy.get('port') != 443:
-        return False
-    
-    if 'reality-opts' in proxy:
-        opts = proxy['reality-opts']
-        if opts.get('public-key') and opts.get('short-id'):
-            return True
-    
-    if proxy.get('reality', False):
-        return True
-    
-    return False
-
-def check_proxy_connectivity(server: str, port: int) -> Tuple[bool, float]:
+def check_proxy(server: str, port: int) -> Tuple[bool, float]:
     """
-    Проверяет доступность прокси через HTTP запрос.
+    Проверяет доступность прокси
     Возвращает (жив, время_ответа)
     """
     try:
         start = time.time()
+        # Пробуем HTTP соединение
         resp = requests.get(
             f"http://{server}:{port}",
             timeout=TIMEOUT,
@@ -269,15 +112,20 @@ def check_proxy_connectivity(server: str, port: int) -> Tuple[bool, float]:
         )
         elapsed = time.time() - start
         
-        if resp.status_code == 204 or (200 <= resp.status_code < 300):
+        # Любой ответ - считаем живым (кроме явных ошибок)
+        if resp.status_code < 400 or resp.status_code >= 500:
             return True, elapsed
         return False, elapsed
         
+    except requests.exceptions.Timeout:
+        return False, TIMEOUT
+    except requests.exceptions.ConnectionError:
+        return False, TIMEOUT
     except Exception:
         return False, TIMEOUT
 
 def load_trash() -> Set[str]:
-    """Загружает список мертвых серверов из trash.txt"""
+    """Загружает список мертвых серверов"""
     trash = set()
     if not os.path.exists(TRASH_FILE):
         return trash
@@ -289,127 +137,23 @@ def load_trash() -> Set[str]:
                 if line and not line.startswith('#'):
                     trash.add(line)
     except Exception as e:
-        print(f"⚠️  Ошибка загрузки trash.txt: {e}")
+        print(f"⚠️ Ошибка загрузки trash: {e}")
     
     return trash
 
 def save_to_trash(server: str, port: int):
-    """Добавляет сервер в trash.txt"""
+    """Добавляет сервер в trash"""
     entry = f"{server}:{port}"
     try:
-        existing = load_trash()
-        if entry in existing:
-            return
-        
         with open(TRASH_FILE, 'a', encoding='utf-8') as f:
             if os.path.getsize(TRASH_FILE) == 0:
-                f.write("# Мертвые серверы (автоматически добавляются filter.py)\n")
-                f.write(f"# Обновлено: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("# Dead servers\n")
             f.write(f"{entry}\n")
     except Exception as e:
-        print(f"⚠️  Ошибка записи в trash.txt: {e}")
-
-def generate_statistics(alive_proxies: List[Dict[str, Any]], response_times: Dict[str, float]) -> str:
-    """Генерирует статистику по живым серверам"""
-    if not alive_proxies:
-        return "Нет живых серверов для статистики"
-    
-    # Подсчет по времени ответа
-    times = list(response_times.values())
-    time_stats = {
-        'fast': len([t for t in times if t < 0.1]),      # < 100ms
-        'medium': len([t for t in times if 0.1 <= t < 0.3]),  # 100-300ms
-        'slow': len([t for t in times if t >= 0.3])      # > 300ms
-    }
-    
-    # Подсчет по транспорту
-    transport_counter = Counter()
-    for proxy in alive_proxies:
-        transport_type = detect_transport_type(proxy)
-        transport_counter[transport_type] += 1
-    
-    # Подсчет по странам
-    country_counter = Counter()
-    for proxy in alive_proxies:
-        server = proxy.get('server', '')
-        country = get_country_from_ip(server)
-        country_counter[country] += 1
-    
-    # Формируем таблицу
-    total = len(alive_proxies)
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    lines = []
-    lines.append("=" * 50)
-    lines.append("📊 FILTER STATISTICS")
-    lines.append("=" * 50)
-    lines.append(f"Generated: {timestamp}")
-    lines.append("")
-    lines.append(f"📋 TOTAL: {total} servers")
-    lines.append("")
-    
-    # Статистика по времени
-    lines.append("⚡ BY RESPONSE TIME:")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    if total > 0:
-        lines.append(f"< 100ms:    {time_stats['fast']:3d} servers ({time_stats['fast']/total*100:5.1f}%)")
-        lines.append(f"100-300ms:  {time_stats['medium']:3d} servers ({time_stats['medium']/total*100:5.1f}%)")
-        lines.append(f"> 300ms:    {time_stats['slow']:3d} servers ({time_stats['slow']/total*100:5.1f}%)")
-    lines.append("")
-    
-    # Статистика по транспорту
-    lines.append("🚀 BY TRANSPORT:")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    for transport, count in transport_counter.most_common():
-        if transport != 'Unknown':
-            lines.append(f"{transport}: {count:3d} servers ({count/total*100:5.1f}%)")
-    if transport_counter.get('Unknown', 0) > 0:
-        lines.append(f"Unknown: {transport_counter['Unknown']:3d} servers ({transport_counter['Unknown']/total*100:5.1f}%)")
-    lines.append("")
-    
-    # Статистика по странам
-    lines.append("🌍 BY COUNTRY:")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    for country, count in country_counter.most_common(15):  # топ-15
-        lines.append(f"{country}: {count:3d} servers ({count/total*100:5.1f}%)")
-    lines.append("")
-    
-    # Детальный список (топ-20 по скорости)
-    lines.append("📈 TOP 20 FASTEST SERVERS:")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"{'Name':30} │ {'Country':15} │ {'Time':6} │ Transport")
-    lines.append("─" * 70)
-    
-    # Сортируем прокси по времени ответа
-    sorted_proxies = sorted(alive_proxies, key=lambda p: response_times.get(p.get('server', ''), float('inf')))[:20]
-    
-    for proxy in sorted_proxies:
-        server = proxy.get('server', '')
-        name = proxy.get('name', server)[:28] + ".." if len(proxy.get('name', server)) > 28 else proxy.get('name', server)
-        country = get_country_from_ip(server)
-        resp_time = response_times.get(server, 0) * 1000  # в миллисекундах
-        transport = detect_transport_type(proxy)[:20]  # обрезаем для таблицы
-        lines.append(f"{name:30} │ {country:15} │ {resp_time:4.0f}ms │ {transport}")
-    
-    lines.append("=" * 50)
-    
-    return "\n".join(lines)
-
-def save_statistics(alive_proxies: List[Dict[str, Any]], response_times: Dict[str, float]):
-    """Сохраняет статистику в stat.txt"""
-    try:
-        stats = generate_statistics(alive_proxies, response_times)
-        with open(STAT_FILE, 'w', encoding='utf-8') as f:
-            f.write(stats)
-        print(f"📊 Статистика сохранена в {STAT_FILE}")
-    except Exception as e:
-        print(f"⚠️  Ошибка сохранения статистики: {e}")
+        print(f"⚠️ Ошибка записи в trash: {e}")
 
 def check_proxies_parallel(proxies: List[Dict[str, Any]], trash_set: Set[str]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, float]]:
-    """
-    Параллельная проверка списка прокси с ограничением по времени.
-    Возвращает (живые, мертвые, словарь времени ответа по серверам)
-    """
+    """Параллельная проверка прокси"""
     if not proxies:
         return [], [], {}
     
@@ -427,12 +171,14 @@ def check_proxies_parallel(proxies: List[Dict[str, Any]], trash_set: Set[str]) -
         port = proxy.get('port', 443)
         proxy_key = f"{server}:{port}"
         
+        # Пропускаем заведомо мертвые
         if proxy_key in trash_set:
             with lock:
                 dead.append(proxy)
             return
         
-        is_alive, response_time = check_proxy_connectivity(server, port)
+        # Проверяем
+        is_alive, response_time = check_proxy(server, port)
         
         with lock:
             if is_alive:
@@ -441,37 +187,39 @@ def check_proxies_parallel(proxies: List[Dict[str, Any]], trash_set: Set[str]) -
                 print(f"  ✅ {server}:{port} - {response_time*1000:.0f}ms")
             else:
                 dead.append(proxy)
-                print(f"  ❌ {server}:{port} - мертв")
+                print(f"  ❌ {server}:{port}")
                 save_to_trash(server, port)
     
+    # Запускаем потоки
     threads = []
     for proxy in proxies:
         if time.time() - start_time > MAX_RUNTIME:
-            print(f"\n⏱️  Достигнут лимит времени выполнения ({MAX_RUNTIME/60:.0f} мин). Прерывание...")
+            print(f"\n⏱️ Лимит времени")
             break
             
         thread = threading.Thread(target=check_single, args=(proxy,))
         thread.start()
         threads.append(thread)
         
+        # Контроль количества потоков
         while len([t for t in threads if t.is_alive()]) >= MAX_WORKERS:
             time.sleep(0.1)
             if time.time() - start_time > MAX_RUNTIME:
-                print(f"\n⏱️  Достигнут лимит времени. Прерывание...")
                 break
     
-    remaining_time = max(0, MAX_RUNTIME - (time.time() - start_time))
+    # Ждем завершения
+    remaining = max(0, MAX_RUNTIME - (time.time() - start_time))
     for thread in threads:
-        thread.join(timeout=remaining_time)
+        thread.join(timeout=remaining)
     
     return alive, dead, response_times
 
 def read_list_file(list_file: str = "list.txt") -> List[str]:
-    """Читает список подписок из файла"""
+    """Читает список подписок"""
     sources = []
     
     if not os.path.exists(list_file):
-        print(f"❌ Файл '{list_file}' не найден!")
+        print(f"❌ Файл {list_file} не найден")
         return []
     
     try:
@@ -483,120 +231,148 @@ def read_list_file(list_file: str = "list.txt") -> List[str]:
                 if line.startswith(('http://', 'https://')):
                     sources.append(line)
                 else:
-                    print(f"⚠️  Строка {line_num} пропущена: {line[:50]}")
+                    print(f"⚠️ Строка {line_num} пропущена: {line[:50]}")
     except Exception as e:
         print(f"❌ Ошибка чтения {list_file}: {e}")
         return []
     
     return sources
 
-def estimate_time(proxies_count: int) -> str:
-    """Приблизительная оценка времени проверки"""
-    if proxies_count == 0:
-        return "0 сек"
+def generate_statistics(alive_proxies: List[Dict[str, Any]], response_times: Dict[str, float]) -> str:
+    """Генерирует статистику"""
+    if not alive_proxies:
+        return "Нет живых прокси"
     
-    est_seconds = (proxies_count / MAX_WORKERS) * TIMEOUT
-    if est_seconds < 60:
-        return f"{est_seconds:.0f} сек"
-    else:
-        return f"{est_seconds/60:.1f} мин"
+    # Статистика по времени
+    times = list(response_times.values())
+    fast = len([t for t in times if t < 0.1])
+    medium = len([t for t in times if 0.1 <= t < 0.3])
+    slow = len([t for t in times if t >= 0.3])
+    
+    # Статистика по протоколам
+    protocols = Counter()
+    for p in alive_proxies:
+        proto = p.get('type', 'unknown')
+        protocols[proto] += 1
+    
+    # Статистика по странам
+    countries = Counter()
+    for p in alive_proxies:
+        server = p.get('server', '')
+        countries[get_country(server)] += 1
+    
+    total = len(alive_proxies)
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    lines = []
+    lines.append("=" * 50)
+    lines.append("📊 STATISTICS")
+    lines.append("=" * 50)
+    lines.append(f"Generated: {now}")
+    lines.append(f"Total: {total} proxies")
+    lines.append("")
+    
+    # По времени
+    lines.append("⚡ BY RESPONSE TIME:")
+    if total > 0:
+        lines.append(f"< 100ms:   {fast:3d} ({fast/total*100:5.1f}%)")
+        lines.append(f"100-300ms: {medium:3d} ({medium/total*100:5.1f}%)")
+        lines.append(f"> 300ms:   {slow:3d} ({slow/total*100:5.1f}%)")
+    lines.append("")
+    
+    # По протоколам
+    lines.append("📡 BY PROTOCOL:")
+    for proto, count in protocols.most_common():
+        lines.append(f"{proto:10}: {count:3d} ({count/total*100:5.1f}%)")
+    lines.append("")
+    
+    # По странам
+    lines.append("🌍 BY COUNTRY:")
+    for country, count in countries.most_common(15):
+        lines.append(f"{country:20}: {count:3d}")
+    lines.append("")
+    
+    # Топ-10 быстрых
+    lines.append("⚡ TOP 10 FASTEST:")
+    sorted_proxies = sorted(alive_proxies, key=lambda p: response_times.get(p.get('server', ''), 999))[:10]
+    for i, p in enumerate(sorted_proxies, 1):
+        server = p.get('server', '')
+        name = p.get('name', server)[:30]
+        time_ms = response_times.get(server, 0) * 1000
+        country = get_country(server)
+        lines.append(f"{i:2}. {country} {time_ms:4.0f}ms - {name}")
+    
+    return "\n".join(lines)
 
-def process_sources(list_file: str = "list.txt"):
+def main(list_file: str = "list.txt"):
     """Основная функция"""
     
-    print(f"\n🔍 Загрузка списка подписок из {list_file}...")
+    print(f"\n🔍 Читаем {list_file}...")
     sources = read_list_file(list_file)
     
     if not sources:
-        print("❌ Нет URL для обработки!")
+        print("❌ Нет источников")
         return
     
-    print(f"📋 Найдено {len(sources)} источников\n")
+    print(f"📋 Найдено {len(sources)} источников")
     
-    # Инициализируем GeoIP
-    print("🌍 Инициализация GeoIP...")
-    geoip_ok = init_geoip()
-    if geoip_ok:
-        print("✅ GeoIP готов к работе")
-    else:
-        print("⚠️  Будет использовано определение по TLD")
-    print()
-    
-    print(f"📂 Загрузка {TRASH_FILE}...")
+    # Загружаем trash
     trash_set = load_trash()
-    print(f"   {len(trash_set)} серверов в черном списке\n")
+    print(f"🗑️ В trash: {len(trash_set)} серверов\n")
     
-    all_candidates = []
+    # Собираем все прокси
+    all_proxies = []
     
     for i, url in enumerate(sources, 1):
-        print(f"[{i}/{len(sources)}] ", end="")
+        print(f"[{i}/{len(sources)}] {url[:60]}...")
         data = fetch_yaml(url)
-        if not data or 'proxies' not in data:
+        
+        if not data:
             continue
-        
-        found = 0
-        for proxy in data['proxies']:
-            if is_target_proxy(proxy):
-                if 'name' in proxy:
-                    name = proxy['name']
-                    if len(name) > 2 and name[0] in '🇺🇸🇨🇾🇩🇪🇫🇷':
-                        proxy['name'] = name[2:].strip()
-                all_candidates.append(proxy)
-                found += 1
-        
-        print(f"  Найдено кандидатов: {found} (всего: {len(all_candidates)})")
+            
+        if 'proxies' in data:
+            proxies = data['proxies']
+            all_proxies.extend(proxies)
+            print(f"   → {len(proxies)} прокси")
+        else:
+            # Может быть другой формат
+            print(f"   → нет поля 'proxies', пропускаем")
     
-    if not all_candidates:
-        print("\n❌ Кандидаты не найдены")
+    print(f"\n📦 Всего кандидатов: {len(all_proxies)}")
+    
+    if not all_proxies:
+        print("❌ Нет прокси для проверки")
         return
     
-    est_time = estimate_time(len(all_candidates))
-    print(f"\n🔄 Проверка {len(all_candidates)} кандидатов...")
-    print(f"   Параллельно: {MAX_WORKERS} потоков")
-    print(f"   Таймаут: {TIMEOUT} сек")
-    print(f"   Примерное время: {est_time}")
-    print(f"   Лимит выполнения: {MAX_RUNTIME/60:.0f} мин\n")
+    # Проверяем
+    print(f"\n🔄 Проверка {len(all_proxies)} прокси...")
+    alive, dead, times = check_proxies_parallel(all_proxies, trash_set)
     
-    alive_proxies, dead_proxies, response_times = check_proxies_parallel(all_candidates, trash_set)
-    
-    # Сохраняем результат в Clash-формате
-    if alive_proxies:
-        output = {'proxies': alive_proxies}
+    # Сохраняем результаты
+    if alive:
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-            yaml.dump(output, f, allow_unicode=True, sort_keys=False)
+            yaml.dump({'proxies': alive}, f, allow_unicode=True, sort_keys=False)
+        print(f"\n✅ Сохранено {len(alive)} живых в {OUTPUT_FILE}")
         
-        # Сохраняем статистику
-        save_statistics(alive_proxies, response_times)
+        # Статистика
+        stats = generate_statistics(alive, times)
+        with open(STAT_FILE, 'w', encoding='utf-8') as f:
+            f.write(stats)
+        print(f"📊 Статистика в {STAT_FILE}")
         
-        print(f"\n✅ РЕЗУЛЬТАТЫ:")
-        print(f"   Живые: {len(alive_proxies)} (сохранены в {OUTPUT_FILE})")
-        print(f"   Мертвые: {len(dead_proxies)} (добавлены в {TRASH_FILE})")
-        print(f"   Статистика: сохранена в {STAT_FILE}")
+        # Краткий отчет
+        print(f"\n📈 Итого:")
+        print(f"   Живые: {len(alive)}")
+        print(f"   Мертвые: {len(dead)}")
         
-        # Показываем быстрые сервера
-        print(f"\n⚡ Топ-5 самых быстрых:")
-        sorted_proxies = sorted(alive_proxies, key=lambda p: response_times.get(p.get('server', ''), float('inf')))[:5]
-        for i, p in enumerate(sorted_proxies, 1):
-            server = p.get('server', '')
-            time_ms = response_times.get(server, 0) * 1000
-            country = get_country_from_ip(server)
-            print(f"   {i}. {country} - {time_ms:.0f}ms")
-            
     else:
         print("\n❌ Нет живых прокси")
-        if dead_proxies:
-            print(f"   {len(dead_proxies)} мертвых добавлены в {TRASH_FILE}")
+        if dead:
+            print(f"   {len(dead)} мертвых добавлены в {TRASH_FILE}")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        list_file = sys.argv[1]
-    else:
-        list_file = "list.txt"
-    
+    list_file = sys.argv[1] if len(sys.argv) > 1 else "list.txt"
     print("=" * 50)
-    print("🔍 Filter v3.1 - проверка прокси со статистикой")
+    print("🔍 Filter v4.0")
     print("=" * 50)
-    print(f"Таймаут: {TIMEOUT} сек | Потоков: {MAX_WORKERS} | Лимит: {MAX_RUNTIME/60:.0f} мин")
-    print("=" * 50)
-    
-    process_sources(list_file)
+    main(list_file)
