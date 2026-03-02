@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.6
+Power v5.7
 ====================================
 Файловая структура:
 - sources.txt  → список RAW-ссылок на подписки
@@ -10,7 +10,7 @@ Power v5.6
 - out.txt      → проверенные рабочие (только ссылки)
 - trash.txt    → битые и медленные
 - 500.txt      → топ-500 лучших (только ссылки)
-- stat.txt     → статистика + анализ дубликатов
+- stat.txt     → статистика + анализ дубликатов (с полными ссылками)
 ====================================
 """
 
@@ -411,7 +411,7 @@ class VlessCollector:
         return working, source_configs
     
     def save_stats(self, working: Dict[str, float], source_configs: Dict[str, List[str]]):
-        """Сохраняет статистику в stat.txt с полным анализом."""
+        """Сохраняет статистику в stat.txt с полным анализом и полными ссылками."""
         with open(self.stat_file, 'w', encoding='utf-8') as f:
             # ========== ОСНОВНАЯ СТАТИСТИКА ==========
             f.write("="*70 + "\n")
@@ -490,11 +490,11 @@ class VlessCollector:
                 
                 # Таблица источников
                 f.write("📌 ДЕТАЛЬНАЯ СТАТИСТИКА ПО ИСТОЧНИКАМ:\n")
-                f.write("-"*120 + "\n")
-                f.write("   {:<50} {:>8} {:>8} {:>8} {:>10} {:>10} {:>12}\n".format(
+                f.write("-" * 150 + "\n")
+                f.write("   {:<80} {:>8} {:>8} {:>8} {:>10} {:>10} {:>12}\n".format(
                     "Источник", "Всего", "Уник.", "Дублей", "% уник.", "Пинг%", "Статус"
                 ))
-                f.write("-"*120 + "\n")
+                f.write("-" * 150 + "\n")
                 
                 # Сортируем по проценту уникальности
                 sorted_for_analysis = sorted(
@@ -526,10 +526,11 @@ class VlessCollector:
                     else:
                         status = "🔴 МУСОР"
                     
-                    short_url = source if len(source) <= 50 else source[:47] + "..."
+                    # ПОЛНЫЙ URL БЕЗ ОБРЕЗАНИЯ
+                    full_url = source
                     
-                    f.write("   {:50} {:8d} {:8d} {:8d} {:9.1f}% {:9.1f}%  {}\n".format(
-                        short_url, total, unique, shared, unique_pct, ping_pct, status
+                    f.write("   {:80} {:8d} {:8d} {:8d} {:9.1f}% {:9.1f}%  {}\n".format(
+                        full_url, total, unique, shared, unique_pct, ping_pct, status
                     ))
                 
                 # ========== РЕКОМЕНДАЦИИ ==========
@@ -554,8 +555,8 @@ class VlessCollector:
                 if sources_to_remove:
                     f.write(f"\n🔴 КАНДИДАТЫ НА УДАЛЕНИЕ ИЗ sources.txt:\n")
                     for source, unique, total in sources_to_remove[:5]:
-                        short_url = source if len(source) <= 50 else source[:47] + "..."
-                        f.write(f"   • {short_url}\n")
+                        # ПОЛНЫЕ ССЫЛКИ БЕЗ ОБРЕЗАНИЯ
+                        f.write(f"   • {source}\n")
                         f.write(f"     (уникальных: {unique}, проверок: {total})\n")
                     
                     # Расчёт экономии времени
@@ -598,7 +599,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.6")
+        print("🚀 POWER v5.7")
         print("="*70)
         print("ФАЙЛОВАЯ СТРУКТУРА:")
         print("  sources.txt  → список RAW-ссылок на подписки")
@@ -606,7 +607,7 @@ class VlessCollector:
         print("  out.txt      → проверенные рабочие (только ссылки)")
         print("  trash.txt    → битые и медленные")
         print("  500.txt      → топ-500 лучших (только ссылки)")
-        print("  stat.txt     → статистика + анализ дубликатов")
+        print("  stat.txt     → статистика + анализ дубликатов (ПОЛНЫЕ ССЫЛКИ)")
         print("="*70)
         
         start_total = time.time()
