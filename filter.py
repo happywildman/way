@@ -754,4 +754,14 @@ class VlessCollector:
         print(f"📁 list.txt         - все сырые сервера")
         print(f"📁 all.txt          - {len(working_all)} иностранных (прошли ping)")
         print(f"📁 ru.txt           - {len(ru_configs)} российских (без проверки)")
-        print(f"📁 out
+        print(f"📁 out.txt          - {len(working_fast)} быстрых иностранных")
+        print(f"📁 500.txt          - топ-500 лучших")
+        print(f"📁 stat.txt         - статистика + анализ дубликатов")
+        print(f"📁 trash.txt        - битые и медленные")
+        print(f"⏱  Общее время: {total_time:.1f} секунд")
+        print("="*70)
+
+
+if __name__ == "__main__":
+    collector = VlessCollector()
+    collector.run()
