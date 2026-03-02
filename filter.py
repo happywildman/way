@@ -2,22 +2,21 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.10
+Power v5.11
 ====================================
 Файловая структура:
 - sources.txt  → список RAW-ссылок на подписки
 - list.txt     → сырые непроверенные сервера (временный)
-- all.txt      → ВСЕ сервера, прошедшие ping 204 (любые порты)
-- ru.txt       → российские сервера (временно пуст, GeoIP отключен)
+- all.txt      → ВСЕ сервера, прошедшие ping 204 (HTTP/HTTPS)
+- ru.txt       → российские сервера (временно пуст)
 - out.txt      → быстрые сервера (ping < 800ms)
 - trash.txt    → битые и медленные
 - 500.txt      → топ-500 лучших из out.txt
 - stat.txt     → статистика + анализ дубликатов
 
-ИЗМЕНЕНИЯ v5.10:
-- Исправлена проверка порта: теперь используется порт из конфига
-- Исправлена запись в all.txt (больше не пустой)
-- GeoIP временно отключен для фокуса на проверке ping
+ИЗМЕНЕНИЯ v5.11:
+- Добавлена поддержка HTTPS (пробуем оба протокола)
+- Добавлено детальное логирование причин отказа
 ====================================
 """
 
@@ -34,6 +33,7 @@ import base64
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import socket
+import ssl
 
 # Настройка логирования
 logging.basicConfig(
@@ -258,9 +258,9 @@ class VlessCollector:
         return config
     
     def check_single(self, config: str, host: str, port: int, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
-        """Проверяет один конфиг на указанном порту."""
+        """Проверяет один конфиг с поддержкой HTTP и HTTPS."""
         
-        # TCP проверка на нужный порт
+        # TCP проверка (без изменений)
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.tcp_timeout)
@@ -270,31 +270,51 @@ class VlessCollector:
             if result != 0:
                 self._save_to_trash(config, f"порт {port} закрыт")
                 return None, None, source_url
-        except:
-            self._save_to_trash(config, "TCP ошибка")
+        except Exception as e:
+            self._save_to_trash(config, f"TCP ошибка: {str(e)[:30]}")
             return None, None, source_url
         
-        # 204 проверка на том же порту
-        test_url = f"http://{host}:{port}/generate_204"
-        try:
-            start = time.time()
-            req = urllib.request.Request(
-                test_url,
-                method='HEAD',
-                headers={'User-Agent': self.user_agent, 'Host': host}
-            )
-            with urllib.request.urlopen(req, timeout=self.check_timeout) as resp:
-                elapsed = (time.time() - start) * 1000
+        # Пытаемся сначала HTTP, затем HTTPS
+        protocols = ['http', 'https']
+        last_error = ""
+        
+        for protocol in protocols:
+            test_url = f"{protocol}://{host}:{port}/generate_204"
+            try:
+                start = time.time()
+                req = urllib.request.Request(
+                    test_url,
+                    method='HEAD',
+                    headers={'User-Agent': self.user_agent, 'Host': host}
+                )
+                
+                # Для HTTPS отключаем проверку сертификата
+                if protocol == 'https':
+                    context = ssl.create_default_context()
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                    with urllib.request.urlopen(req, timeout=self.check_timeout, context=context) as resp:
+                        elapsed = (time.time() - start) * 1000
+                else:
+                    with urllib.request.urlopen(req, timeout=self.check_timeout) as resp:
+                        elapsed = (time.time() - start) * 1000
                 
                 if resp.status == 204:
                     normalized = self.normalize_config(config, elapsed)
                     return normalized, elapsed, source_url
                 else:
-                    self._save_to_trash(config, f"код {resp.status}")
-                    return None, None, source_url
-        except Exception as e:
-            self._save_to_trash(config, f"ошибка 204")
-            return None, None, source_url
+                    last_error = f"код {resp.status}"
+                    # Пробуем следующий протокол
+                    continue
+                    
+            except Exception as e:
+                last_error = f"{protocol} ошибка: {str(e)[:30]}"
+                # Пробуем следующий протокол
+                continue
+        
+        # Если ни HTTP ни HTTPS не сработали
+        self._save_to_trash(config, last_error)
+        return None, None, source_url
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, str], Dict[str, List[str]]]:
         """
@@ -348,7 +368,7 @@ class VlessCollector:
             logger.warning("⚠️ Нет серверов для проверки!")
             return {}, {}, {}, source_configs
         
-        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c)...")
+        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c)...")
         
         # Параллельная проверка
         working_all = {}      # все прошедшие ping
@@ -429,7 +449,7 @@ class VlessCollector:
             f.write("="*70 + "\n\n")
             
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c\n")
+            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c\n")
             f.write(f"Типы: ВСЕ ПРОТОКОЛЫ\n\n")
             
             total_all = 0
@@ -635,7 +655,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.10")
+        print("🚀 POWER v5.11")
         print("="*70)
         print("ФАЙЛОВАЯ СТРУКТУРА:")
         print("  sources.txt  → список RAW-ссылок на подписки")
@@ -647,7 +667,7 @@ class VlessCollector:
         print("  500.txt      → топ-500 лучших из out.txt")
         print("  stat.txt     → статистика + анализ дубликатов")
         print("="*70)
-        print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c")
+        print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c")
         print("ПРОТОКОЛЫ: ВСЕ (без фильтрации)")
         print("ПОРТ: ИЗ КОНФИГА (исправлено)")
         print("GeoIP: ВРЕМЕННО ОТКЛЮЧЕН")
