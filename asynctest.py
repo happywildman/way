@@ -66,9 +66,13 @@ class AsyncChecker:
                 if resp.status_code == 204:
                     elapsed = (time.monotonic() - start) * 1000
                     return (proxy_string, elapsed)
+                else:
+                    # ДИАГНОСТИКА: не 204 код
+                    print(f"⚠️ {proxy_string[:50]}... -> статус {resp.status_code}")
                     
             except Exception as e:
-                # Любая ошибка = прокси не работает
+                # ДИАГНОСТИКА: печатаем ошибку
+                print(f"❌ {proxy_string[:50]}... -> {type(e).__name__}: {e}")
                 return None
         
         return None
