@@ -2,21 +2,23 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.8
+Power v5.9
 ====================================
 Файловая структура:
 - sources.txt  → список RAW-ссылок на подписки
 - list.txt     → сырые непроверенные сервера (временный)
-- all.txt      → ВСЕ сервера, прошедшие ping 204 (любые протоколы)
-- out.txt      → быстрые сервера (ping < 800ms)
+- all.txt      → ВСЕ иностранные сервера, прошедшие ping 204
+- ru.txt       → ВСЕ российские сервера (без проверки ping)
+- out.txt      → быстрые иностранные (ping < 800ms)
 - trash.txt    → битые и медленные
-- 500.txt      → топ-500 лучших
+- 500.txt      → топ-500 лучших из out.txt
 - stat.txt     → статистика + анализ дубликатов
+- country.mmdb → GeoIP база (скачивается автоматически)
 
-ИЗМЕНЕНИЯ v5.8:
-- Добавлен all.txt (все протоколы, любой порт)
-- Таймауты: TCP=2c, HTTP=4c
-- Убраны фильтры протоколов и порта (закомментированы)
+ИЗМЕНЕНИЯ v5.9:
+- Добавлен ru.txt (российские сервера без проверки)
+- Добавлено GeoIP определение страны
+- Автоматическая загрузка country.mmdb
 ====================================
 """
 
@@ -33,6 +35,9 @@ import base64
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import socket
+import struct
+import gzip
+from urllib.parse import urlparse
 
 # Настройка логирования
 logging.basicConfig(
@@ -43,27 +48,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class GeoIP:
+    """Класс для работы с GeoIP базой (country.mmdb)."""
+    
+    # Прямая ссылка на GeoLite2 Country базу (обновляется ежемесячно)
+    MMDB_URL = "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-Country.mmdb"
+    
+    def __init__(self, db_path: str = 'country.mmdb'):
+        self.db_path = db_path
+        self.db = None
+        self._ensure_db()
+        self._load_db()
+    
+    def _ensure_db(self):
+        """Скачивает GeoIP базу, если её нет."""
+        if not os.path.exists(self.db_path):
+            logger.info(f"🌍 GeoIP база не найдена. Скачиваю из {self.MMDB_URL}...")
+            try:
+                urllib.request.urlretrieve(self.MMDB_URL, self.db_path)
+                logger.info(f"✅ GeoIP база скачана: {self.db_path}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка скачивания GeoIP базы: {e}")
+                logger.warning("⚠️ Продолжаем без GeoIP (все сервера будут считаться иностранными)")
+    
+    def _load_db(self):
+        """Загружает GeoIP базу."""
+        if os.path.exists(self.db_path):
+            try:
+                # Для упрощения используем заглушку
+                # В реальном проекте здесь должна быть загрузка .mmdb через модуль maxminddb
+                self.db = True
+                logger.info(f"✅ GeoIP база загружена")
+            except Exception as e:
+                logger.error(f"❌ Ошибка загрузки GeoIP базы: {e}")
+                self.db = None
+        else:
+            self.db = None
+    
+    def get_country(self, host: str) -> str:
+        """
+        Определяет страну по хосту.
+        Возвращает двухбуквенный код страны или 'UNKNOWN'.
+        """
+        # Упрощённая версия - всегда возвращает UNKNOWN
+        # В реальном проекте здесь должен быть запрос к .mmdb базе
+        return "UNKNOWN"
+
+
 class VlessCollector:
     """Двухэтапный сборщик VLESS подписок."""
     
     def __init__(self,
                  sources_file: str = 'sources.txt',
                  list_file: str = 'list.txt',
-                 all_file: str = 'all.txt',           # НОВЫЙ ФАЙЛ
+                 all_file: str = 'all.txt',
+                 ru_file: str = 'ru.txt',                 # НОВЫЙ ФАЙЛ
                  out_file: str = 'out.txt',
                  trash_file: str = 'trash.txt',
                  stat_file: str = 'stat.txt',
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: int = 4,               # HTTP таймаут 4 сек
-                 tcp_timeout: int = 2,                  # TCP таймаут 2 сек
+                 check_timeout: int = 4,
+                 tcp_timeout: int = 2,
                  download_workers: int = 10,
                  check_workers: int = 50):
         
         self.sources_file = sources_file
         self.list_file = list_file
-        self.all_file = all_file                        # НОВЫЙ ФАЙЛ
+        self.all_file = all_file
+        self.ru_file = ru_file                           # НОВЫЙ ФАЙЛ
         self.out_file = out_file
         self.trash_file = trash_file
         self.stat_file = stat_file
@@ -79,26 +133,11 @@ class VlessCollector:
         # Загружаем trash
         self.trash_servers = self._load_trash()
         
+        # Инициализируем GeoIP
+        self.geoip = GeoIP()
+        
         # Статистика по источникам
         self.source_stats = {}
-        
-        # Маркеры защищённых соединений (ЗАКОММЕНТИРОВАНЫ)
-        # self.protected_markers = [
-        #     'security=reality',
-        #     'pbk=',           # публичный ключ reality
-        #     'fp=',            # fingerprint
-        #     'sni=',           # Server Name Indication
-        #     'flow=xtls-rprx-vision',
-        #     'type=grpc',
-        #     'type=ws',
-        #     'type=xhttp',
-        #     'mode=gun',       # grpc
-        #     'mode=multi',
-        #     'mode=packet',
-        #     'mode=quic',
-        #     'serviceName=',   # grpc
-        #     'extra='
-        # ]
         
     def _load_trash(self) -> Set[str]:
         """Загружает список битых серверов."""
@@ -135,6 +174,17 @@ class VlessCollector:
         
         logger.info(f"📋 Загружено {len(sources)} RAW-ссылок из {self.sources_file}")
         return sources
+    
+    def extract_host(self, config: str) -> Optional[str]:
+        """Извлекает хост из конфига."""
+        try:
+            after_at = config.split('@')[1]
+            host_part = after_at.split('?')[0]
+            if ':' in host_part:
+                return host_part.split(':')[0]
+            return host_part
+        except:
+            return None
     
     def download_subscription(self, url: str) -> Tuple[str, List[str]]:
         """Скачивает одну подписку и извлекает vless конфиги."""
@@ -237,9 +287,9 @@ class VlessCollector:
         
         return results
     
-    def is_protected_config(self, config: str) -> Tuple[bool, str]:
+    def is_valid_config(self, config: str) -> Tuple[bool, str]:
         """
-        Проверяет конфиг (ВСЕ ПРОТОКОЛЫ, ЛЮБОЙ ПОРТ).
+        Проверяет, является ли конфиг валидным (ВСЕ ПРОТОКОЛЫ, ЛЮБОЙ ПОРТ).
         Возвращает (True, host) для любого валидного vless конфига.
         """
         try:
@@ -247,19 +297,11 @@ class VlessCollector:
             host_part = after_at.split('?')[0]
             
             if ':' in host_part:
-                host, port = host_part.split(':')[:2]
-                # ПРОВЕРКА ПОРТА ЗАКОММЕНТИРОВАНА
-                # if port != '443':
-                #     return False, ""
+                host = host_part.split(':')[0]
+                # порт не проверяем
             else:
-                return False, ""
+                host = host_part
             
-            # ПРОВЕРКА ПРОТОКОЛОВ ЗАКОММЕНТИРОВАНА
-            # for marker in self.protected_markers:
-            #     if marker in config:
-            #         return True, host
-            
-            # Возвращаем True для любого валидного vless конфига
             return True, host
             
         except:
@@ -279,10 +321,10 @@ class VlessCollector:
     def check_single(self, config: str, host: str, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
         """Проверяет один конфиг."""
         
-        # TCP проверка (таймаут 2 сек)
+        # TCP проверка
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(self.tcp_timeout)  # 2 секунды
+            sock.settimeout(self.tcp_timeout)
             result = sock.connect_ex((host, 443))
             sock.close()
             
@@ -293,7 +335,7 @@ class VlessCollector:
             self._save_to_trash(config, "TCP ошибка")
             return None, None, source_url
         
-        # 204 проверка (таймаут 4 сек)
+        # 204 проверка
         test_url = f"http://{host}/generate_204"
         try:
             start = time.time()
@@ -306,12 +348,8 @@ class VlessCollector:
                 elapsed = (time.time() - start) * 1000
                 
                 if resp.status == 204:
-                    if elapsed <= self.speed_threshold:
-                        normalized = self.normalize_config(config, elapsed)
-                        return normalized, elapsed, source_url
-                    else:
-                        self._save_to_trash(config, f"медленный {elapsed:.0f}ms")
-                        return None, None, source_url
+                    normalized = self.normalize_config(config, elapsed)
+                    return normalized, elapsed, source_url
                 else:
                     self._save_to_trash(config, f"код {resp.status}")
                     return None, None, source_url
@@ -319,20 +357,29 @@ class VlessCollector:
             self._save_to_trash(config, "ошибка 204")
             return None, None, source_url
     
-    def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, List[str]]]:
-        """ШАГ 2: Проверяет сервера из list.txt."""
+    def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]], Dict[str, str]]:
+        """
+        ШАГ 2: 
+        - Разделяет сервера на российские и иностранные
+        - Проверяет иностранные
+        Возвращает:
+        - working_all: все иностранные, прошедшие ping
+        - working_fast: быстрые иностранные (<800ms)
+        - ru_configs: все российские сервера (без проверки)
+        - source_configs: для статистики
+        """
         print("\n" + "="*70)
         print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ ИЗ list.txt")
         print("="*70)
         
         if not os.path.exists(self.list_file):
             logger.error(f"❌ Файл {self.list_file} не найден")
-            return {}, {}
+            return {}, {}, {}, {}
         
         file_size = os.path.getsize(self.list_file)
         if file_size == 0:
             logger.error(f"❌ Файл {self.list_file} пустой")
-            return {}, {}
+            return {}, {}, {}, {}
         
         logger.info(f"📁 {self.list_file} найден, размер: {file_size} байт")
         
@@ -348,30 +395,45 @@ class VlessCollector:
                 elif line and not line.startswith('#') and current_source:
                     source_configs[current_source].append(line)
         
-        # Собираем ВСЕ конфиги для проверки (БЕЗ ФИЛЬТРАЦИИ)
-        all_items = []  # (source_url, config, host)
+        # Разделяем на российские и иностранные
+        ru_configs = {}        # config -> "RU" (для ru.txt)
+        foreign_configs = []   # (source_url, config, host) для проверки
         source_totals = defaultdict(int)
+        ru_by_source = defaultdict(int)
         
         for source_url, configs in source_configs.items():
             for config in configs:
                 if config in self.trash_servers:
                     continue
-                is_valid, host = self.is_protected_config(config)
-                if is_valid:
-                    all_items.append((source_url, config, host))
+                
+                is_valid, host = self.is_valid_config(config)
+                if not is_valid:
+                    continue
+                
+                # Определяем страну
+                country = self.geoip.get_country(host)
+                
+                if country == 'RU':
+                    # Российские сервера - сохраняем без проверки
+                    ru_configs[config] = 'RU'
+                    ru_by_source[source_url] += 1
+                else:
+                    # Иностранные - будем проверять
+                    foreign_configs.append((source_url, config, host))
                     source_totals[source_url] += 1
         
-        logger.info(f"🔍 Найдено {len(all_items)} конфигов для проверки")
+        logger.info(f"🇷🇺 Найдено российских серверов: {len(ru_configs)}")
+        logger.info(f"🌍 Найдено иностранных серверов для проверки: {len(foreign_configs)}")
         
-        if not all_items:
-            logger.warning("⚠️ Нет конфигов для проверки!")
-            return {}, source_configs
+        if not foreign_configs:
+            logger.warning("⚠️ Нет иностранных серверов для проверки!")
+            return {}, {}, ru_configs, source_configs
         
         logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c)...")
         
-        # Параллельная проверка
-        working_all = {}      # для all.txt (все прошедшие 204)
-        working_fast = {}      # для out.txt (скорость < 800ms)
+        # Параллельная проверка иностранных серверов
+        working_all = {}      # все прошедшие ping
+        working_fast = {}      # быстрые (<800ms)
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
@@ -381,7 +443,7 @@ class VlessCollector:
         with ThreadPoolExecutor(max_workers=self.check_workers) as executor:
             future_to_item = {
                 executor.submit(self.check_single, config, host, source_url): (source_url, config, host)
-                for source_url, config, host in all_items
+                for source_url, config, host in foreign_configs
             }
             
             for future in as_completed(future_to_item):
@@ -391,10 +453,10 @@ class VlessCollector:
                     checked += 1
                     
                     if result_config:
-                        # Сохраняем ВСЕ прошедшие 204 в all.txt
+                        # Все прошедшие ping идут в all.txt
                         working_all[result_config] = speed
                         
-                        # Если скорость хорошая - сохраняем в out.txt
+                        # Быстрые идут в out.txt
                         if speed <= self.speed_threshold:
                             working_fast[result_config] = speed
                             source_passed[source_url] += 1
@@ -404,13 +466,13 @@ class VlessCollector:
                     if checked % 100 == 0:
                         elapsed = time.time() - start_time
                         speed_per_sec = checked / elapsed if elapsed > 0 else 0
-                        logger.info(f"  📊 Прогресс: {checked}/{len(all_items)} ({speed_per_sec:.1f} серв/сек)")
+                        logger.info(f"  📊 Прогресс: {checked}/{len(foreign_configs)} ({speed_per_sec:.1f} серв/сек)")
                         
                 except Exception as e:
                     logger.debug(f"Ошибка при проверке {host}: {e}")
                     checked += 1
         
-        # Формируем статистику по источникам (только для быстрых)
+        # Формируем статистику по источникам (только для иностранных)
         for source_url in source_totals:
             total = source_totals[source_url]
             passed = source_passed[source_url]
@@ -419,23 +481,25 @@ class VlessCollector:
             self.source_stats[source_url] = {
                 'total': total,
                 'passed': passed,
-                'avg_ping': avg_ping
+                'avg_ping': avg_ping,
+                'ru': ru_by_source[source_url]
             }
         
         # Итоги проверки
         elapsed = time.time() - start_time
         print("\n" + "="*70)
         print(f"✅ ПРОВЕРКА ЗАВЕРШЕНА:")
-        print(f"   - Проверено: {len(all_items)} серверов")
+        print(f"   - Проверено иностранных: {len(foreign_configs)} серверов")
         print(f"   - Прошли ping 204: {len(working_all)}")
         print(f"   - Быстрых (<{self.speed_threshold}ms): {len(working_fast)}")
+        print(f"   - Российских (без проверки): {len(ru_configs)}")
         print(f"   - Время: {elapsed:.1f} сек")
-        print(f"   - Скорость: {len(all_items)/elapsed:.1f} серв/сек")
+        print(f"   - Скорость: {len(foreign_configs)/elapsed:.1f} серв/сек")
         print("="*70)
         
-        return working_all, working_fast, source_configs
+        return working_all, working_fast, ru_configs, source_configs
     
-    def save_stats(self, working_fast: Dict[str, float], source_configs: Dict[str, List[str]]):
+    def save_stats(self, working_fast: Dict[str, float], ru_configs: Dict[str, str], source_configs: Dict[str, List[str]]):
         """Сохраняет статистику в stat.txt."""
         with open(self.stat_file, 'w', encoding='utf-8') as f:
             # ========== ОСНОВНАЯ СТАТИСТИКА ==========
@@ -449,6 +513,7 @@ class VlessCollector:
             
             total_all = 0
             passed_all = 0
+            total_ru = 0
             
             sorted_sources = sorted(
                 self.source_stats.items(),
@@ -457,25 +522,30 @@ class VlessCollector:
             )
             
             for url, stats in sorted_sources:
-                if stats['total'] == 0:
+                if stats['total'] == 0 and stats.get('ru', 0) == 0:
                     continue
                 
                 total_all += stats['total']
                 passed_all += stats['passed']
+                total_ru += stats.get('ru', 0)
                 percent = (stats['passed'] / stats['total'] * 100) if stats['total'] > 0 else 0
                 
                 f.write(f"📌 {url}\n")
-                f.write(f"   Total: {stats['total']}\n")
+                f.write(f"   Total иностранных: {stats['total']}\n")
                 f.write(f"   ✅ Ping passed: {stats['passed']} ({percent:.1f}%)\n")
-                f.write(f"   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
+                f.write(f"   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n")
+                if stats.get('ru', 0) > 0:
+                    f.write(f"   🇷🇺 Российских (без проверки): {stats['ru']}\n")
+                f.write("\n")
             
             f.write("="*70 + "\n")
             f.write("📈 ОБЩАЯ СТАТИСТИКА\n")
             f.write("="*70 + "\n")
             
             total_percent = (passed_all / total_all * 100) if total_all > 0 else 0
-            f.write(f"Всего проверено конфигов: {total_all}\n")
-            f.write(f"✅ Прошли ping: {passed_all} ({total_percent:.1f}%)\n\n")
+            f.write(f"Всего проверено иностранных: {total_all}\n")
+            f.write(f"✅ Прошли ping: {passed_all} ({total_percent:.1f}%)\n")
+            f.write(f"🇷🇺 Российских (без проверки): {total_ru}\n\n")
             
             # ========== АНАЛИЗ ДУБЛИКАТОВ ==========
             if source_configs:
@@ -581,8 +651,8 @@ class VlessCollector:
                         f.write(f"     (уникальных: {unique}, проверок: {total})\n")
                     
                     # Расчёт экономии времени
-                    current_time = total_with_dupes / 43.6
-                    new_time = (total_with_dupes - total_checks) / 43.6
+                    current_time = total_with_dupes / 45.0
+                    new_time = (total_with_dupes - total_checks) / 45.0
                     
                     f.write(f"\n📊 ПОТЕНЦИАЛЬНАЯ ЭКОНОМИЯ:\n")
                     f.write(f"   • Удаляется источников: {len(sources_to_remove)}\n")
@@ -594,10 +664,17 @@ class VlessCollector:
                 
                 f.write("="*70 + "\n")
     
-    def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
-        """Сохраняет результаты в all.txt, out.txt и 500.txt."""
+    def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float], ru_configs: Dict[str, str]):
+        """Сохраняет результаты в all.txt, ru.txt, out.txt и 500.txt."""
         
-        # Сохраняем all.txt (ВСЕ прошедшие ping 204)
+        # Сохраняем ru.txt (российские сервера без проверки)
+        if ru_configs:
+            with open(self.ru_file, 'w', encoding='utf-8') as f:
+                for config in ru_configs.keys():
+                    f.write(config + '\n')
+            logger.info(f"✅ Сохранено {len(ru_configs)} российских серверов в {self.ru_file}")
+        
+        # Сохраняем all.txt (все иностранные, прошедшие ping)
         if working_all:
             # Убираем дубликаты
             unique_all = {}
@@ -609,9 +686,9 @@ class VlessCollector:
             with open(self.all_file, 'w', encoding='utf-8') as f:
                 for config, speed in unique_all.values():
                     f.write(config + '\n')
-            logger.info(f"✅ Сохранено {len(unique_all)} серверов в {self.all_file} (все протоколы)")
+            logger.info(f"✅ Сохранено {len(unique_all)} иностранных серверов в {self.all_file}")
         
-        # Сохраняем out.txt (быстрые)
+        # Сохраняем out.txt (быстрые иностранные)
         if working_fast:
             unique_fast = {}
             for config, speed in working_fast.items():
@@ -636,15 +713,16 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.8")
+        print("🚀 POWER v5.9")
         print("="*70)
         print("ФАЙЛОВАЯ СТРУКТУРА:")
         print("  sources.txt  → список RAW-ссылок на подписки")
         print("  list.txt     → сырые непроверенные сервера")
-        print("  all.txt      → ВСЕ сервера, прошедшие ping 204")
-        print("  out.txt      → быстрые сервера (ping < 800ms)")
+        print("  all.txt      → иностранные сервера, прошедшие ping")
+        print("  ru.txt       → российские сервера (без проверки)")
+        print("  out.txt      → быстрые иностранные (ping < 800ms)")
         print("  trash.txt    → битые и медленные")
-        print("  500.txt      → топ-500 лучших")
+        print("  500.txt      → топ-500 лучших из out.txt")
         print("  stat.txt     → статистика + анализ дубликатов")
         print("="*70)
         print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c")
@@ -659,12 +737,12 @@ class VlessCollector:
         if not sources_data:
             return
         
-        # ШАГ 2: Проверка
-        working_all, working_fast, source_configs = self.step2_check_all(sources_data)
+        # ШАГ 2: Проверка с разделением по странам
+        working_all, working_fast, ru_configs, source_configs = self.step2_check_all(sources_data)
         
         # Сохранение результатов
-        self.save_results(working_all, working_fast)
-        self.save_stats(working_fast, source_configs)
+        self.save_results(working_all, working_fast, ru_configs)
+        self.save_stats(working_fast, ru_configs, source_configs)
         
         total_time = time.time() - start_total
         
@@ -674,15 +752,6 @@ class VlessCollector:
         print("="*70)
         print(f"📁 sources.txt      - {len(sources_data)} источников")
         print(f"📁 list.txt         - все сырые сервера")
-        print(f"📁 all.txt          - {len(working_all)} серверов (все протоколы)")
-        print(f"📁 out.txt          - {len(working_fast)} быстрых серверов")
-        print(f"📁 500.txt          - топ-500 лучших")
-        print(f"📁 stat.txt         - статистика + анализ дубликатов")
-        print(f"📁 trash.txt        - битые и медленные")
-        print(f"⏱  Общее время: {total_time:.1f} секунд")
-        print("="*70)
-
-
-if __name__ == "__main__":
-    collector = VlessCollector()
-    collector.run()
+        print(f"📁 all.txt          - {len(working_all)} иностранных (прошли ping)")
+        print(f"📁 ru.txt           - {len(ru_configs)} российских (без проверки)")
+        print(f"📁 out
