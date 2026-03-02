@@ -2,21 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.11
+Power v5.13
 ====================================
 Файловая структура:
 - sources.txt  → список RAW-ссылок на подписки
-- list.txt     → сырые непроверенные сервера (временный)
-- all.txt      → ВСЕ сервера, прошедшие ping 204 (HTTP/HTTPS)
-- ru.txt       → российские сервера (временно пуст)
+- list.txt     → сырые непроверенные сервера
+- all.txt      → ВСЕ сервера, прошедшие ping 204
 - out.txt      → быстрые сервера (ping < 800ms)
-- trash.txt    → битые и медленные
 - 500.txt      → топ-500 лучших из out.txt
 - stat.txt     → статистика + анализ дубликатов
 
-ИЗМЕНЕНИЯ v5.11:
-- Добавлена поддержка HTTPS (пробуем оба протокола)
-- Добавлено детальное логирование причин отказа
+GeoIP ПОЛНОСТЬЮ УДАЛЕН
+trash.txt ПОЛНОСТЬЮ УДАЛЕН
 ====================================
 """
 
@@ -51,24 +48,20 @@ class VlessCollector:
                  sources_file: str = 'sources.txt',
                  list_file: str = 'list.txt',
                  all_file: str = 'all.txt',
-                 ru_file: str = 'ru.txt',
                  out_file: str = 'out.txt',
-                 trash_file: str = 'trash.txt',
                  stat_file: str = 'stat.txt',
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: int = 4,
-                 tcp_timeout: int = 2,
+                 check_timeout: int = 5,           # УВЕЛИЧЕНО
+                 tcp_timeout: int = 3,              # УВЕЛИЧЕНО
                  download_workers: int = 10,
                  check_workers: int = 50):
         
         self.sources_file = sources_file
         self.list_file = list_file
         self.all_file = all_file
-        self.ru_file = ru_file
         self.out_file = out_file
-        self.trash_file = trash_file
         self.stat_file = stat_file
         self.top500_file = top500_file
         self.speed_threshold = speed_threshold
@@ -79,35 +72,9 @@ class VlessCollector:
         self.check_workers = check_workers
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         
-        # Загружаем trash
-        self.trash_servers = self._load_trash()
-        
-        # GeoIP временно отключен - все сервера считаем иностранными
-        # self.geoip = None
-        
         # Статистика по источникам
         self.source_stats = {}
         
-    def _load_trash(self) -> Set[str]:
-        """Загружает список битых серверов."""
-        trash = set()
-        if os.path.exists(self.trash_file):
-            with open(self.trash_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        config = line.split('#')[0].strip()
-                        if config:
-                            trash.add(config)
-        return trash
-    
-    def _save_to_trash(self, config: str, reason: str = ""):
-        """Сохраняет битый/медленный сервер в trash."""
-        if config not in self.trash_servers:
-            self.trash_servers.add(config)
-            with open(self.trash_file, 'a', encoding='utf-8') as f:
-                f.write(f"{config} # {reason}\n")
-    
     def read_sources(self) -> List[str]:
         """Читает список RAW-ссылок из sources.txt."""
         if not os.path.exists(self.sources_file):
@@ -150,7 +117,6 @@ class VlessCollector:
                 vless_pattern = r'vless://[a-f0-9-]+@[^#\s]+(?:#[^\s]*)?'
                 configs = re.findall(vless_pattern, text)
                 
-                logger.debug(f"  {url}: {len(configs)} конфигов")
                 return url, configs
                 
         except Exception as e:
@@ -161,7 +127,7 @@ class VlessCollector:
         """ШАГ 1: Собирает все сервера в list.txt."""
         print("\n" + "="*70)
         print("🔍 ШАГ 1: СБОР ВСЕХ СЕРВЕРОВ В list.txt")
-        print("="*70)
+        print("="*70")
         
         sources = self.read_sources()
         if not sources:
@@ -208,17 +174,9 @@ class VlessCollector:
                     logger.error(f"  ❌ Ошибка при обработке {url}: {e}")
                     results[url] = []
         
-        # Проверка создания файла
-        if os.path.exists(self.list_file):
-            file_size = os.path.getsize(self.list_file)
-            logger.info(f"📁 {self.list_file} создан, размер: {file_size} байт")
-        else:
-            logger.error(f"❌ {self.list_file} НЕ БЫЛ СОЗДАН!")
-        
         print("\n" + "="*70)
         print(f"✅ СБОР ЗАВЕРШЁН:")
-        print(f"   - Источников всего: {len(sources)}")
-        print(f"   - Успешно скачано: {successful}")
+        print(f"   - Источников: {len(sources)}")
         print(f"   - Всего серверов: {total_configs}")
         print(f"   - Сохранено в: {self.list_file}")
         print("="*70)
@@ -226,10 +184,7 @@ class VlessCollector:
         return results
     
     def is_valid_config(self, config: str) -> Tuple[bool, str, int]:
-        """
-        Проверяет валидность конфига.
-        Возвращает (True, host, port) для любого валидного vless конфига.
-        """
+        """Проверяет валидность конфига."""
         try:
             after_at = config.split('@')[1]
             host_part = after_at.split('?')[0]
@@ -239,46 +194,37 @@ class VlessCollector:
                 port = int(port_str)
             else:
                 host = host_part
-                port = 443  # если порт не указан, по умолчанию 443
+                port = 443
             
             return True, host, port
             
         except:
             return False, "", 0
     
+    def get_config_key(self, config: str) -> str:
+        """Ключ для сравнения дубликатов (без тега)."""
+        return config.split('#')[0] if '#' in config else config
+    
     def normalize_config(self, config: str, speed: float) -> str:
-        """
-        Сохраняет конфиг без изменений.
-        Только исправляет &; на & (техническая необходимость).
-        """
-        # Исправляем возможные &; на &
-        config = config.replace('&;', '&')
-        
-        # НИЧЕГО не добавляем, не меняем названия
-        return config
+        """Исправляет &; на &, остальное без изменений."""
+        return config.replace('&;', '&')
     
     def check_single(self, config: str, host: str, port: int, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
-        """Проверяет один конфиг с поддержкой HTTP и HTTPS."""
+        """Проверяет один конфиг."""
         
-        # TCP проверка (без изменений)
+        # TCP проверка
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.tcp_timeout)
             result = sock.connect_ex((host, port))
             sock.close()
-            
             if result != 0:
-                self._save_to_trash(config, f"порт {port} закрыт")
                 return None, None, source_url
-        except Exception as e:
-            self._save_to_trash(config, f"TCP ошибка: {str(e)[:30]}")
+        except:
             return None, None, source_url
         
-        # Пытаемся сначала HTTP, затем HTTPS
-        protocols = ['http', 'https']
-        last_error = ""
-        
-        for protocol in protocols:
+        # Пробуем HTTP и HTTPS
+        for protocol in ['http', 'https']:
             test_url = f"{protocol}://{host}:{port}/generate_204"
             try:
                 start = time.time()
@@ -288,7 +234,6 @@ class VlessCollector:
                     headers={'User-Agent': self.user_agent, 'Host': host}
                 )
                 
-                # Для HTTPS отключаем проверку сертификата
                 if protocol == 'https':
                     context = ssl.create_default_context()
                     context.check_hostname = False
@@ -300,43 +245,22 @@ class VlessCollector:
                         elapsed = (time.time() - start) * 1000
                 
                 if resp.status == 204:
-                    normalized = self.normalize_config(config, elapsed)
-                    return normalized, elapsed, source_url
-                else:
-                    last_error = f"код {resp.status}"
-                    # Пробуем следующий протокол
-                    continue
-                    
-            except Exception as e:
-                last_error = f"{protocol} ошибка: {str(e)[:30]}"
-                # Пробуем следующий протокол
+                    return self.normalize_config(config, elapsed), elapsed, source_url
+            except:
                 continue
         
-        # Если ни HTTP ни HTTPS не сработали
-        self._save_to_trash(config, last_error)
         return None, None, source_url
     
-    def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, str], Dict[str, List[str]]]:
-        """
-        ШАГ 2: Проверяет сервера из list.txt.
-        GeoIP временно отключен - все сервера считаются иностранными.
-        """
+    def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
+        """ШАГ 2: Проверяет все сервера без разделения."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ ИЗ list.txt")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ")
         print("="*70)
         
         if not os.path.exists(self.list_file):
-            logger.error(f"❌ Файл {self.list_file} не найден")
-            return {}, {}, {}, {}
+            return {}, {}, {}
         
-        file_size = os.path.getsize(self.list_file)
-        if file_size == 0:
-            logger.error(f"❌ Файл {self.list_file} пустой")
-            return {}, {}, {}, {}
-        
-        logger.info(f"📁 {self.list_file} найден, размер: {file_size} байт")
-        
-        # Читаем list.txt и собираем конфиги по источникам
+        # Читаем list.txt
         source_configs = defaultdict(list)
         current_source = None
         
@@ -348,31 +272,27 @@ class VlessCollector:
                 elif line and not line.startswith('#') and current_source:
                     source_configs[current_source].append(line)
         
-        # Собираем все конфиги для проверки
-        all_items = []  # (source_url, config, host, port)
+        # Собираем все конфиги
+        all_items = []
         source_totals = defaultdict(int)
         
         for source_url, configs in source_configs.items():
             for config in configs:
-                if config in self.trash_servers:
-                    continue
-                
                 is_valid, host, port = self.is_valid_config(config)
                 if is_valid:
                     all_items.append((source_url, config, host, port))
                     source_totals[source_url] += 1
         
-        logger.info(f"🌍 Найдено серверов для проверки: {len(all_items)}")
+        logger.info(f"🌍 Найдено серверов: {len(all_items)}")
         
         if not all_items:
-            logger.warning("⚠️ Нет серверов для проверки!")
-            return {}, {}, {}, source_configs
+            return {}, {}, source_configs
         
         logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c)...")
         
-        # Параллельная проверка
-        working_all = {}      # все прошедшие ping
-        working_fast = {}      # быстрые (<800ms)
+        # Проверка
+        working_all = {}
+        working_fast = {}
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
@@ -387,321 +307,102 @@ class VlessCollector:
             
             for future in as_completed(future_to_item):
                 source_url, config, host, port = future_to_item[future]
-                try:
-                    result_config, speed, src = future.result()
-                    checked += 1
-                    
-                    if result_config:
-                        # Все прошедшие ping идут в all.txt
-                        working_all[result_config] = speed
-                        
-                        # Быстрые идут в out.txt
-                        if speed <= self.speed_threshold:
-                            working_fast[result_config] = speed
-                            source_passed[source_url] += 1
-                            source_pings[source_url].append(speed)
-                    
-                    # Прогресс каждые 100 проверок
-                    if checked % 100 == 0:
-                        elapsed = time.time() - start_time
-                        speed_per_sec = checked / elapsed if elapsed > 0 else 0
-                        logger.info(f"  📊 Прогресс: {checked}/{len(all_items)} ({speed_per_sec:.1f} серв/сек)")
-                        
-                except Exception as e:
-                    logger.debug(f"Ошибка при проверке {host}:{port}: {e}")
-                    checked += 1
+                result_config, speed, _ = future.result()
+                checked += 1
+                
+                if result_config:
+                    working_all[result_config] = speed
+                    if speed <= self.speed_threshold:
+                        working_fast[result_config] = speed
+                        source_passed[source_url] += 1
+                        source_pings[source_url].append(speed)
+                
+                if checked % 100 == 0:
+                    elapsed = time.time() - start_time
+                    logger.info(f"  📊 Прогресс: {checked}/{len(all_items)} ({checked/elapsed:.1f} серв/сек)")
         
-        # Формируем статистику по источникам
+        # Статистика
         for source_url in source_totals:
             total = source_totals[source_url]
             passed = source_passed[source_url]
             pings = source_pings[source_url]
-            avg_ping = sum(pings) / len(pings) if pings else 0
-            self.source_stats[source_url] = {
-                'total': total,
-                'passed': passed,
-                'avg_ping': avg_ping,
-                'ru': 0  # GeoIP отключен
-            }
+            avg_ping = sum(pings)/len(pings) if pings else 0
+            self.source_stats[source_url] = {'total': total, 'passed': passed, 'avg_ping': avg_ping}
         
-        # Итоги проверки
         elapsed = time.time() - start_time
         print("\n" + "="*70)
         print(f"✅ ПРОВЕРКА ЗАВЕРШЕНА:")
-        print(f"   - Проверено серверов: {len(all_items)}")
-        print(f"   - Прошли ping 204: {len(working_all)}")
+        print(f"   - Проверено: {len(all_items)}")
+        print(f"   - Прошли ping: {len(working_all)}")
         print(f"   - Быстрых (<{self.speed_threshold}ms): {len(working_fast)}")
         print(f"   - Время: {elapsed:.1f} сек")
-        print(f"   - Скорость: {len(all_items)/elapsed:.1f} серв/сек")
         print("="*70)
         
-        # GeoIP временно отключен - российских серверов нет
-        ru_configs = {}
-        
-        return working_all, working_fast, ru_configs, source_configs
+        return working_all, working_fast, source_configs
     
-    def save_stats(self, working_fast: Dict[str, float], ru_configs: Dict[str, str], source_configs: Dict[str, List[str]]):
-        """Сохраняет статистику в stat.txt."""
+    def save_stats(self, working_fast: Dict[str, float], source_configs: Dict[str, List[str]]):
+        """Сохраняет статистику."""
         with open(self.stat_file, 'w', encoding='utf-8') as f:
-            # ========== ОСНОВНАЯ СТАТИСТИКА ==========
-            f.write("="*70 + "\n")
-            f.write("📊 СТАТИСТИКА ПО ИСТОЧНИКАМ ПРОКСИ\n")
-            f.write("="*70 + "\n\n")
-            
+            f.write("="*70 + "\n📊 СТАТИСТИКА\n" + "="*70 + "\n\n")
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c\n")
-            f.write(f"Типы: ВСЕ ПРОТОКОЛЫ\n\n")
+            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c\n\n")
             
-            total_all = 0
-            passed_all = 0
-            total_ru = 0
+            total_all = passed_all = 0
+            for url, stats in sorted(self.source_stats.items(), key=lambda x: x[1]['passed']/x[1]['total'] if x[1]['total'] else 0, reverse=True):
+                if stats['total']:
+                    total_all += stats['total']
+                    passed_all += stats['passed']
+                    f.write(f"📌 {url}\n   Total: {stats['total']}\n   ✅ Ping passed: {stats['passed']} ({stats['passed']/stats['total']*100:.1f}%)\n   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
             
-            sorted_sources = sorted(
-                self.source_stats.items(),
-                key=lambda x: (x[1]['passed'] / x[1]['total']) if x[1]['total'] > 0 else 0,
-                reverse=True
-            )
-            
-            for url, stats in sorted_sources:
-                if stats['total'] == 0:
-                    continue
-                
-                total_all += stats['total']
-                passed_all += stats['passed']
-                percent = (stats['passed'] / stats['total'] * 100) if stats['total'] > 0 else 0
-                
-                f.write(f"📌 {url}\n")
-                f.write(f"   Total серверов: {stats['total']}\n")
-                f.write(f"   ✅ Ping passed: {stats['passed']} ({percent:.1f}%)\n")
-                f.write(f"   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
-            
-            f.write("="*70 + "\n")
-            f.write("📈 ОБЩАЯ СТАТИСТИКА\n")
-            f.write("="*70 + "\n")
-            
-            total_percent = (passed_all / total_all * 100) if total_all > 0 else 0
-            f.write(f"Всего проверено серверов: {total_all}\n")
-            f.write(f"✅ Прошли ping: {passed_all} ({total_percent:.1f}%)\n")
-            f.write(f"(GeoIP временно отключен - все сервера считаются иностранными)\n\n")
-            
-            # ========== АНАЛИЗ ДУБЛИКАТОВ ==========
-            if source_configs:
-                f.write("\n" + "="*70 + "\n")
-                f.write("🔍 АНАЛИЗ ДУБЛИКАТОВ И УНИКАЛЬНОСТИ ИСТОЧНИКОВ\n")
-                f.write("="*70 + "\n\n")
-                
-                # Собираем все конфиги с привязкой к источникам
-                config_sources = defaultdict(set)
-                source_totals = defaultdict(int)
-                
-                for source_url, configs in source_configs.items():
-                    for config in configs:
-                        base_config = re.sub(r'#.*', '', config)
-                        config_sources[base_config].add(source_url)
-                        source_totals[source_url] += 1
-                
-                # Считаем уникальные и дублирующиеся для каждого источника
-                source_unique = defaultdict(int)
-                source_shared = defaultdict(int)
-                
-                for base_config, sources in config_sources.items():
-                    for source in sources:
-                        if len(sources) == 1:
-                            source_unique[source] += 1
-                        else:
-                            source_shared[source] += 1
-                
-                # Общая статистика по пулу
-                unique_total = len(config_sources)
-                total_with_dupes = sum(source_totals.values())
-                
-                f.write(f"📊 Всего уникальных конфигов в пуле: {unique_total:,}\n")
-                f.write(f"📊 Всего конфигов с учётом дублей: {total_with_dupes:,}\n")
-                if unique_total > 0:
-                    f.write(f"📊 Коэффициент дублирования: {total_with_dupes/unique_total:.2f}x\n\n")
-                
-                # Таблица источников
-                f.write("📌 ДЕТАЛЬНАЯ СТАТИСТИКА ПО ИСТОЧНИКАМ:\n")
-                f.write("-" * 150 + "\n")
-                f.write("   {:<80} {:>8} {:>8} {:>8} {:>10} {:>10} {:>12}\n".format(
-                    "Источник", "Всего", "Уник.", "Дублей", "% уник.", "Пинг%", "Статус"
-                ))
-                f.write("-" * 150 + "\n")
-                
-                # Сортируем по проценту уникальности
-                sorted_for_analysis = sorted(
-                    source_totals.keys(),
-                    key=lambda x: (source_unique[x] / source_totals[x]) if source_totals[x] > 0 else 0,
-                    reverse=True
-                )
-                
-                for source in sorted_for_analysis:
-                    total = source_totals[source]
-                    if total == 0:
-                        continue
-                    
-                    unique = source_unique[source]
-                    shared = source_shared[source]
-                    unique_pct = (unique / total * 100)
-                    
-                    ping_passed = self.source_stats.get(source, {}).get('passed', 0)
-                    ping_total = self.source_stats.get(source, {}).get('total', 0)
-                    ping_pct = (ping_passed / ping_total * 100) if ping_total > 0 else 0
-                    
-                    # Определяем статус источника
-                    if unique_pct >= 70 and ping_pct >= 50:
-                        status = "🟢 ОТЛИЧНЫЙ"
-                    elif unique_pct >= 30 and ping_pct >= 30:
-                        status = "🟡 СРЕДНИЙ"
-                    elif unique_pct >= 15 and ping_pct >= 10:
-                        status = "🟠 СОМНИТЕЛЬНЫЙ"
-                    else:
-                        status = "🔴 МУСОР"
-                    
-                    f.write("   {:<80} {:8d} {:8d} {:8d} {:9.1f}% {:9.1f}%  {}\n".format(
-                        source, total, unique, shared, unique_pct, ping_pct, status
-                    ))
-                
-                # ========== РЕКОМЕНДАЦИИ ==========
-                f.write("\n💡 РЕКОМЕНДАЦИИ ПО ОПТИМИЗАЦИИ:\n")
-                f.write("-"*70 + "\n")
-                
-                sources_to_remove = []
-                unique_loss = 0
-                total_checks = 0
-                
-                for source in source_totals.keys():
-                    total = source_totals[source]
-                    unique = source_unique[source]
-                    unique_pct = (unique / total * 100) if total > 0 else 0
-                    ping_pct = self.source_stats.get(source, {}).get('passed', 0) / max(1, self.source_stats.get(source, {}).get('total', 1)) * 100
-                    
-                    if unique_pct < 15 or ping_pct < 10:
-                        sources_to_remove.append((source, unique, total))
-                        unique_loss += unique
-                        total_checks += total
-                
-                if sources_to_remove:
-                    f.write(f"\n🔴 КАНДИДАТЫ НА УДАЛЕНИЕ ИЗ sources.txt:\n")
-                    for source, unique, total in sources_to_remove[:5]:
-                        f.write(f"   • {source}\n")
-                        f.write(f"     (уникальных: {unique}, проверок: {total})\n")
-                    
-                    # Расчёт экономии времени
-                    current_time = total_with_dupes / 45.0
-                    new_time = (total_with_dupes - total_checks) / 45.0
-                    
-                    f.write(f"\n📊 ПОТЕНЦИАЛЬНАЯ ЭКОНОМИЯ:\n")
-                    f.write(f"   • Удаляется источников: {len(sources_to_remove)}\n")
-                    f.write(f"   • Потеряется уникальных: {unique_loss} ({unique_loss/unique_total*100:.1f}%)\n")
-                    f.write(f"   • Освободится проверок: {total_checks} ({total_checks/total_with_dupes*100:.1f}%)\n")
-                    f.write(f"   • НОВОЕ ВРЕМЯ: ~{new_time:.0f} сек (было {current_time:.0f} сек)\n")
-                else:
-                    f.write("\n✅ Все источники качественные, удалять нечего!\n")
-                
-                f.write("="*70 + "\n")
+            f.write("="*70 + "\n📈 ОБЩАЯ СТАТИСТИКА\n" + "="*70 + f"\nВсего проверено: {total_all}\n✅ Прошли ping: {passed_all} ({passed_all/total_all*100:.1f}%)\n")
     
-    def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float], ru_configs: Dict[str, str]):
-        """Сохраняет результаты в all.txt, ru.txt, out.txt и 500.txt."""
-        
-        # Сохраняем ru.txt (временно пуст)
-        with open(self.ru_file, 'w', encoding='utf-8') as f:
-            f.write("# GeoIP временно отключен. Российские сервера не определяются.\n")
-        logger.info(f"📁 {self.ru_file} создан (GeoIP отключен)")
-        
-        # Сохраняем all.txt (ВСЕ прошедшие ping)
+    def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
+        """Сохраняет all.txt, out.txt, 500.txt."""
         if working_all:
-            # Убираем дубликаты
-            unique_all = {}
-            for config, speed in working_all.items():
-                base = re.sub(r'#.*', '', config)
-                if base not in unique_all or speed < unique_all[base][1]:
-                    unique_all[base] = (config, speed)
-            
-            with open(self.all_file, 'w', encoding='utf-8') as f:
-                for config, speed in unique_all.values():
-                    f.write(config + '\n')
-            logger.info(f"✅ Сохранено {len(unique_all)} серверов в {self.all_file}")
-        else:
-            logger.warning(f"⚠️ Нет данных для all.txt")
-            with open(self.all_file, 'w', encoding='utf-8') as f:
-                f.write("# Нет серверов, прошедших ping 204\n")
+            unique = {}
+            for c, s in working_all.items():
+                k = self.get_config_key(c)
+                if k not in unique or s < unique[k][1]:
+                    unique[k] = (c, s)
+            with open(self.all_file, 'w') as f:
+                for c, _ in unique.values():
+                    f.write(c + '\n')
+            logger.info(f"✅ Сохранено {len(unique)} в all.txt")
         
-        # Сохраняем out.txt (быстрые)
         if working_fast:
-            unique_fast = {}
-            for config, speed in working_fast.items():
-                base = re.sub(r'#.*', '', config)
-                if base not in unique_fast or speed < unique_fast[base][1]:
-                    unique_fast[base] = (config, speed)
+            unique = {}
+            for c, s in working_fast.items():
+                k = self.get_config_key(c)
+                if k not in unique or s < unique[k][1]:
+                    unique[k] = (c, s)
+            with open(self.out_file, 'w') as f:
+                for c, _ in unique.values():
+                    f.write(c + '\n')
+            logger.info(f"✅ Сохранено {len(unique)} в out.txt")
             
-            with open(self.out_file, 'w', encoding='utf-8') as f:
-                for config, speed in unique_fast.values():
-                    f.write(config + '\n')
-            logger.info(f"✅ Сохранено {len(unique_fast)} быстрых серверов в {self.out_file}")
-            
-            # Топ-500
-            if unique_fast:
-                sorted_fast = sorted(unique_fast.values(), key=lambda x: x[1])
-                top_configs = sorted_fast[:500]
-                
-                with open(self.top500_file, 'w', encoding='utf-8') as f:
-                    for config, speed in top_configs:
-                        f.write(config + '\n')
-                logger.info(f"✅ Сохранено топ-500 в {self.top500_file}")
-        else:
-            logger.warning(f"⚠️ Нет быстрых серверов для out.txt и 500.txt")
+            top = sorted(unique.values(), key=lambda x: x[1])[:500]
+            with open(self.top500_file, 'w') as f:
+                for c, _ in top:
+                    f.write(c + '\n')
+            logger.info(f"✅ Сохранено топ-{len(top)} в 500.txt")
     
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.11")
+        print("🚀 POWER v5.13")
         print("="*70)
-        print("ФАЙЛОВАЯ СТРУКТУРА:")
-        print("  sources.txt  → список RAW-ссылок на подписки")
-        print("  list.txt     → сырые непроверенные сервера")
-        print("  all.txt      → ВСЕ сервера, прошедшие ping 204")
-        print("  ru.txt       → российские сервера (временно пуст)")
-        print("  out.txt      → быстрые сервера (ping < 800ms)")
-        print("  trash.txt    → битые и медленные")
-        print("  500.txt      → топ-500 лучших из out.txt")
-        print("  stat.txt     → статистика + анализ дубликатов")
-        print("="*70)
+        print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c")
-        print("ПРОТОКОЛЫ: ВСЕ (без фильтрации)")
-        print("ПОРТ: ИЗ КОНФИГА (исправлено)")
-        print("GeoIP: ВРЕМЕННО ОТКЛЮЧЕН")
+        print("GeoIP: УДАЛЕН | trash: УДАЛЕН")
         print("="*70)
         
-        start_total = time.time()
-        
-        # ШАГ 1: Сбор
-        sources_data = self.step1_collect_all()
-        if not sources_data:
-            return
-        
-        # ШАГ 2: Проверка
-        working_all, working_fast, ru_configs, source_configs = self.step2_check_all(sources_data)
-        
-        # Сохранение результатов
-        self.save_results(working_all, working_fast, ru_configs)
-        self.save_stats(working_fast, ru_configs, source_configs)
-        
-        total_time = time.time() - start_total
-        
-        # Финальный отчёт
-        print("\n" + "="*70)
-        print("🎯 ВСЁ ГОТОВО!")
-        print("="*70)
-        print(f"📁 sources.txt      - {len(sources_data)} источников")
-        print(f"📁 list.txt         - все сырые сервера")
-        print(f"📁 all.txt          - {len(working_all)} серверов (прошли ping)")
-        print(f"📁 ru.txt           - временно пуст (GeoIP отключен)")
-        print(f"📁 out.txt          - {len(working_fast)} быстрых серверов")
-        print(f"📁 500.txt          - топ-500 лучших")
-        print(f"📁 stat.txt         - статистика + анализ дубликатов")
-        print(f"📁 trash.txt        - битые и медленные")
-        print(f"⏱  Общее время: {total_time:.1f} секунд")
+        start = time.time()
+        sources = self.step1_collect_all()
+        if sources:
+            all_cfg, fast_cfg, src_cfg = self.step2_check_all(sources)
+            self.save_results(all_cfg, fast_cfg)
+            self.save_stats(fast_cfg, src_cfg)
+        print(f"\n🎯 ГОТОВО! Время: {time.time()-start:.1f} сек")
         print("="*70)
 
 
