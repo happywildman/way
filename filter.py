@@ -419,7 +419,7 @@ class VlessCollector:
             f.write("="*70 + "\n\n")
             
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP=3c, HTTP=6c\n")
+            f.write(f"Таймауты: TCP=5c, HTTP=9c\n")
             f.write(f"Типы: reality, grpc, ws, xhttp, vision\n\n")
             
             total_all = 0
