@@ -2,18 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.13
+Power v5.20
 ====================================
-Файловая структура:
-- sources.txt  → список RAW-ссылок на подписки
-- list.txt     → сырые непроверенные сервера
-- all.txt      → ВСЕ сервера, прошедшие ping 204
-- out.txt      → быстрые сервера (ping < 800ms)
-- 500.txt      → топ-500 лучших из out.txt
-- stat.txt     → статистика + анализ дубликатов
-
-GeoIP ПОЛНОСТЬЮ УДАЛЕН
-trash.txt ПОЛНОСТЬЮ УДАЛЕН
+- ТОЛЬКО HTTPS (HTTP удален)
+- ВСЕ ПРОТОКОЛЫ (vless, vmess, trojan, ss, ssr, hy2, hysteria2)
+- Дедупликация до проверки
 ====================================
 """
 
@@ -42,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class VlessCollector:
-    """Двухэтапный сборщик VLESS подписок."""
+    """Двухэтапный сборщик подписок (ВСЕ ПРОТОКОЛЫ, ТОЛЬКО HTTPS)."""
     
     def __init__(self,
                  sources_file: str = 'sources.txt',
@@ -53,8 +46,8 @@ class VlessCollector:
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: int = 3,           # УВЕЛИЧЕНО
-                 tcp_timeout: int = 2,              # УВЕЛИЧЕНО
+                 check_timeout: int = 3,
+                 tcp_timeout: int = 2,
                  download_workers: int = 10,
                  check_workers: int = 50):
         
@@ -92,7 +85,7 @@ class VlessCollector:
         return sources
     
     def download_subscription(self, url: str) -> Tuple[str, List[str]]:
-        """Скачивает одну подписку и извлекает vless конфиги."""
+        """Скачивает одну подписку и извлекает ВСЕ конфиги (любые протоколы)."""
         try:
             req = urllib.request.Request(url, headers={'User-Agent': self.user_agent})
             with urllib.request.urlopen(req, timeout=self.download_timeout) as response:
@@ -113,10 +106,26 @@ class VlessCollector:
                     except:
                         pass
                 
-                # Извлекаем ВСЕ vless ссылки
-                vless_pattern = r'vless://[a-f0-9-]+@[^#\s]+(?:#[^\s]*)?'
-                configs = re.findall(vless_pattern, text)
+                # Извлекаем ВСЕ ссылки (любые протоколы)
+                all_patterns = [
+                    r'vless://[^\s]+',
+                    r'vmess://[^\s]+', 
+                    r'trojan://[^\s]+',
+                    r'ss://[^\s]+',
+                    r'ssr://[^\s]+',
+                    r'hy2://[^\s]+',
+                    r'hysteria2://[^\s]+',
+                    r'wireguard://[^\s]+'
+                ]
                 
+                configs = []
+                for pattern in all_patterns:
+                    configs.extend(re.findall(pattern, text))
+                
+                # Убираем дубликаты
+                configs = list(set(configs))
+                
+                logger.debug(f"  {url}: {len(configs)} конфигов (все протоколы)")
                 return url, configs
                 
         except Exception as e:
@@ -184,33 +193,36 @@ class VlessCollector:
         return results
     
     def is_valid_config(self, config: str) -> Tuple[bool, str, int]:
-        """Проверяет валидность конфига."""
+        """Проверяет валидность конфига (любого протокола)."""
         try:
-            after_at = config.split('@')[1]
-            host_part = after_at.split('?')[0]
-            
-            if ':' in host_part:
-                host, port_str = host_part.split(':')[:2]
-                port = int(port_str)
-            else:
-                host = host_part
-                port = 443
-            
-            return True, host, port
-            
+            if '://' in config:
+                after_proto = config.split('://', 1)[1]
+                if '@' in after_proto:
+                    after_at = after_proto.split('@', 1)[1]
+                    host_part = after_at.split('?')[0].split('#')[0]
+                    
+                    if ':' in host_part:
+                        host, port_str = host_part.split(':')[:2]
+                        port = int(port_str)
+                    else:
+                        host = host_part
+                        port = 443
+                    
+                    return True, host, port
+            return False, "", 0
         except:
             return False, "", 0
     
     def get_config_key(self, config: str) -> str:
-        """Ключ для сравнения дубликатов (без тега)."""
-        return config.split('#')[0] if '#' in config else config
+        """Ключ для сравнения дубликатов (без тега и параметров)."""
+        return config.split('#')[0].split('?')[0]
     
     def normalize_config(self, config: str, speed: float) -> str:
         """Исправляет &; на &, остальное без изменений."""
         return config.replace('&;', '&')
     
     def check_single(self, config: str, host: str, port: int, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
-        """Проверяет один конфиг."""
+        """Проверяет один конфиг (ТОЛЬКО HTTPS)."""
         
         # TCP проверка
         try:
@@ -223,38 +235,35 @@ class VlessCollector:
         except:
             return None, None, source_url
         
-        # Пробуем HTTP и HTTPS
-        for protocol in ['http', 'https']:
-            test_url = f"{protocol}://{host}:{port}/generate_204"
-            try:
-                start = time.time()
-                req = urllib.request.Request(
-                    test_url,
-                    method='HEAD',
-                    headers={'User-Agent': self.user_agent, 'Host': host}
-                )
-                
-                if protocol == 'https':
-                    context = ssl.create_default_context()
-                    context.check_hostname = False
-                    context.verify_mode = ssl.CERT_NONE
-                    with urllib.request.urlopen(req, timeout=self.check_timeout, context=context) as resp:
-                        elapsed = (time.time() - start) * 1000
-                else:
-                    with urllib.request.urlopen(req, timeout=self.check_timeout) as resp:
-                        elapsed = (time.time() - start) * 1000
+        # ТОЛЬКО HTTPS
+        test_url = f"https://{host}:{port}/generate_204"
+        try:
+            start = time.time()
+            req = urllib.request.Request(
+                test_url,
+                method='HEAD',
+                headers={'User-Agent': self.user_agent, 'Host': host}
+            )
+            
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+            with urllib.request.urlopen(req, timeout=self.check_timeout, context=context) as resp:
+                elapsed = (time.time() - start) * 1000
                 
                 if resp.status == 204:
                     return self.normalize_config(config, elapsed), elapsed, source_url
-            except:
-                continue
-        
-        return None, None, source_url
+                else:
+                    return None, None, source_url
+                    
+        except Exception as e:
+            return None, None, source_url
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
-        """ШАГ 2: Проверяет все сервера без разделения."""
+        """ШАГ 2: Проверяет все сервера."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (HTTPS only)")
         print("="*70)
         
         if not os.path.exists(self.list_file):
@@ -272,23 +281,35 @@ class VlessCollector:
                 elif line and not line.startswith('#') and current_source:
                     source_configs[current_source].append(line)
         
-        # Собираем все конфиги
-        all_items = []
+        # Собираем все конфиги с источниками
+        all_configs_with_sources = []
         source_totals = defaultdict(int)
         
         for source_url, configs in source_configs.items():
             for config in configs:
                 is_valid, host, port = self.is_valid_config(config)
                 if is_valid:
-                    all_items.append((source_url, config, host, port))
+                    all_configs_with_sources.append((source_url, config, host, port))
                     source_totals[source_url] += 1
         
-        logger.info(f"🌍 Найдено серверов: {len(all_items)}")
+        logger.info(f"🌍 Найдено серверов (с дубликатами): {len(all_configs_with_sources)}")
         
-        if not all_items:
+        if not all_configs_with_sources:
             return {}, {}, source_configs
         
-        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c)...")
+        # Дедупликация до проверки
+        unique_configs_map = {}
+        for source_url, config, host, port in all_configs_with_sources:
+            key = self.get_config_key(config)
+            if key not in unique_configs_map:
+                unique_configs_map[key] = (source_url, config, host, port)
+        
+        all_items = list(unique_configs_map.values())
+        
+        logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных серверов")
+        logger.info(f"📊 Сэкономлено проверок: {len(all_configs_with_sources) - len(all_items)}")
+        
+        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c)...")
         
         # Проверка
         working_all = {}
@@ -327,13 +348,18 @@ class VlessCollector:
             passed = source_passed[source_url]
             pings = source_pings[source_url]
             avg_ping = sum(pings)/len(pings) if pings else 0
-            self.source_stats[source_url] = {'total': total, 'passed': passed, 'avg_ping': avg_ping}
+            self.source_stats[source_url] = {
+                'total': total,
+                'passed': passed,
+                'avg_ping': avg_ping
+            }
         
         elapsed = time.time() - start_time
+        
         print("\n" + "="*70)
         print(f"✅ ПРОВЕРКА ЗАВЕРШЕНА:")
-        print(f"   - Проверено: {len(all_items)}")
-        print(f"   - Прошли ping: {len(working_all)}")
+        print(f"   - Уникальных серверов проверено: {len(all_items)}")
+        print(f"   - Прошли ping (HTTPS): {len(working_all)}")
         print(f"   - Быстрых (<{self.speed_threshold}ms): {len(working_fast)}")
         print(f"   - Время: {elapsed:.1f} сек")
         print("="*70)
@@ -345,7 +371,7 @@ class VlessCollector:
         with open(self.stat_file, 'w', encoding='utf-8') as f:
             f.write("="*70 + "\n📊 СТАТИСТИКА\n" + "="*70 + "\n\n")
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c\n\n")
+            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c\n\n")
             
             total_all = passed_all = 0
             for url, stats in sorted(self.source_stats.items(), key=lambda x: x[1]['passed']/x[1]['total'] if x[1]['total'] else 0, reverse=True):
@@ -358,30 +384,41 @@ class VlessCollector:
     
     def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
         """Сохраняет all.txt, out.txt, 500.txt."""
+        
+        # all.txt
         if working_all:
             unique = {}
             for c, s in working_all.items():
                 k = self.get_config_key(c)
                 if k not in unique or s < unique[k][1]:
                     unique[k] = (c, s)
-            with open(self.all_file, 'w') as f:
+            
+            with open(self.all_file, 'w', encoding='utf-8') as f:
                 for c, _ in unique.values():
                     f.write(c + '\n')
             logger.info(f"✅ Сохранено {len(unique)} в all.txt")
+            
+            # Проверка
+            if os.path.exists(self.all_file):
+                size = os.path.getsize(self.all_file)
+                logger.info(f"📁 Размер all.txt: {size} байт")
         
+        # out.txt
         if working_fast:
-            unique = {}
+            unique_fast = {}
             for c, s in working_fast.items():
                 k = self.get_config_key(c)
-                if k not in unique or s < unique[k][1]:
-                    unique[k] = (c, s)
-            with open(self.out_file, 'w') as f:
-                for c, _ in unique.values():
-                    f.write(c + '\n')
-            logger.info(f"✅ Сохранено {len(unique)} в out.txt")
+                if k not in unique_fast or s < unique_fast[k][1]:
+                    unique_fast[k] = (c, s)
             
-            top = sorted(unique.values(), key=lambda x: x[1])[:500]
-            with open(self.top500_file, 'w') as f:
+            with open(self.out_file, 'w', encoding='utf-8') as f:
+                for c, _ in unique_fast.values():
+                    f.write(c + '\n')
+            logger.info(f"✅ Сохранено {len(unique_fast)} в out.txt")
+            
+            # 500.txt
+            top = sorted(unique_fast.values(), key=lambda x: x[1])[:500]
+            with open(self.top500_file, 'w', encoding='utf-8') as f:
                 for c, _ in top:
                     f.write(c + '\n')
             logger.info(f"✅ Сохранено топ-{len(top)} в 500.txt")
@@ -389,10 +426,13 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.13")
+        print("🚀 POWER v5.20")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
-        print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTP/HTTPS={self.check_timeout}c")
+        print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c")
+        print("ПРОТОКОЛЫ: ВСЕ (vless, vmess, trojan, ss, ssr, hy2, hysteria2)")
+        print("ПРОВЕРКА: ТОЛЬКО HTTPS")
+        print("ДЕДУПЛИКАЦИЯ: ДО ПРОВЕРКИ")
         print("GeoIP: УДАЛЕН | trash: УДАЛЕН")
         print("="*70)
         
