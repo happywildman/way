@@ -127,7 +127,7 @@ class VlessCollector:
         """ШАГ 1: Собирает все сервера в list.txt."""
         print("\n" + "="*70)
         print("🔍 ШАГ 1: СБОР ВСЕХ СЕРВЕРОВ В list.txt")
-        print("="*70")
+        print("="*70)
         
         sources = self.read_sources()
         if not sources:
