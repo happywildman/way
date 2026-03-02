@@ -225,7 +225,7 @@ class VlessCollector:
         print(f"   - Успешно скачано: {successful}")
         print(f"   - Всего серверов: {total_configs}")
         print(f"   - Сохранено в: {self.list_file}")
-        print("="*70")
+        print("="*70)
         
         return results
     
