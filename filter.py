@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.10
+Power v5.12
 ====================================
 Файловая структура:
 - sources.txt  → список RAW-ссылок на подписки
@@ -12,7 +12,9 @@ Power v5.10
 - 500.txt      → топ-500 лучших (только ссылки)
 - stat.txt     → статистика + анализ дубликатов
 
-ВАЖНО: названия серверов сохраняются оригинальными, без добавлений
+ВАЖНО: 
+- Проверка только по 204 (как в рабочей версии v5.5)
+- Названия серверов сохраняются оригинальными
 ====================================
 """
 
@@ -29,7 +31,6 @@ import base64
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import socket
-import ssl
 
 # Настройка логирования
 logging.basicConfig(
@@ -255,37 +256,14 @@ class VlessCollector:
         Сохраняет конфиг без изменений.
         Только исправляет &; на & (техническая необходимость).
         """
-        # Исправляем возможные &; на & (это не меняет название, только корректирует синтаксис)
+        # Исправляем возможные &; на &
         config = config.replace('&;', '&')
         
         # НИЧЕГО не добавляем, не меняем названия
         return config
     
-    def deep_check(self, host: str) -> bool:
-        """
-        Глубокая проверка: пытается получить реальные данные.
-        """
-        try:
-            # Пробуем получить небольшие данные через HTTPS
-            context = ssl.create_default_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            
-            test_url = f"https://{host}/"
-            req = urllib.request.Request(test_url, method='HEAD', headers={
-                'User-Agent': self.user_agent,
-                'Host': host
-            })
-            
-            with urllib.request.urlopen(req, timeout=self.check_timeout, context=context) as resp:
-                # Если получили любой ответ - сервер жив
-                return True
-                
-        except Exception as e:
-            return False
-    
     def check_single(self, config: str, host: str, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
-        """Проверяет один конфиг с глубокой проверкой."""
+        """Проверяет один конфиг (только 204, как в v5.5)."""
         
         # Шаг 1: TCP проверка
         try:
@@ -301,7 +279,7 @@ class VlessCollector:
             self._save_to_trash(config, "TCP ошибка")
             return None, None, source_url
         
-        # Шаг 2: 204 проверка со временем
+        # Шаг 2: 204 проверка со временем (только это!)
         test_url = f"http://{host}/generate_204"
         try:
             start = time.time()
@@ -313,25 +291,19 @@ class VlessCollector:
             with urllib.request.urlopen(req, timeout=self.check_timeout) as resp:
                 elapsed = (time.time() - start) * 1000
                 
-                if resp.status != 204:
+                if resp.status == 204:
+                    if elapsed <= self.speed_threshold:
+                        normalized = self.normalize_config(config, elapsed)
+                        return normalized, elapsed, source_url
+                    else:
+                        self._save_to_trash(config, f"медленный {elapsed:.0f}ms")
+                        return None, None, source_url
+                else:
                     self._save_to_trash(config, f"код {resp.status}")
                     return None, None, source_url
-                
-                if elapsed > self.speed_threshold:
-                    self._save_to_trash(config, f"медленный {elapsed:.0f}ms")
-                    return None, None, source_url
-        except:
-            self._save_to_trash(config, "ошибка 204")
+        except Exception as e:
+            self._save_to_trash(config, f"ошибка 204")
             return None, None, source_url
-        
-        # Шаг 3: Глубокая проверка (HTTPS)
-        if not self.deep_check(host):
-            self._save_to_trash(config, "не прошёл deep check")
-            return None, None, source_url
-        
-        # Все проверки пройдены - возвращаем конфиг без изменений
-        normalized = self.normalize_config(config, elapsed)
-        return normalized, elapsed, source_url
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, List[str]]]:
         """ШАГ 2: Проверяет сервера из list.txt."""
@@ -381,7 +353,7 @@ class VlessCollector:
             logger.warning("⚠️ Нет конфигов для проверки!")
             return {}, source_configs
         
-        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP=3c, HTTP=6c, deep)...")
+        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP=3c, HTTP=6c)...")
         
         # Параллельная проверка
         working = {}
@@ -451,7 +423,7 @@ class VlessCollector:
             f.write("="*70 + "\n\n")
             
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP=3c, HTTP=6c, Deep check\n")
+            f.write(f"Таймауты: TCP=3c, HTTP=6c\n")
             f.write(f"Типы: reality, grpc, ws, xhttp, vision\n\n")
             
             total_all = 0
@@ -630,7 +602,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.10")
+        print("🚀 POWER v5.12")
         print("="*70)
         print("ФАЙЛОВАЯ СТРУКТУРА:")
         print("  sources.txt  → список RAW-ссылок на подписки")
@@ -640,7 +612,8 @@ class VlessCollector:
         print("  500.txt      → топ-500 лучших (только ссылки)")
         print("  stat.txt     → статистика + анализ дубликатов")
         print("="*70)
-        print("ВАЖНО: названия серверов сохраняются оригинальными")
+        print("ПРОВЕРКА: только 204 (как в рабочей версии)")
+        print("НАЗВАНИЯ: оригинальные, без изменений")
         print("="*70)
         
         start_total = time.time()
