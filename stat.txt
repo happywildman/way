@@ -2,42 +2,122 @@
 📊 СТАТИСТИКА ПО ИСТОЧНИКАМ ПРОКСИ
 ======================================================================
 
-Дата: 2026-03-02 05:44:57
-Таймауты: TCP=3c, HTTP=6c, Deep check
+Дата: 2026-03-02 06:06:50
+Таймауты: TCP=3c, HTTP=6c
 Типы: reality, grpc, ws, xhttp, vision
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/1.txt
-   Total защищённых: 1878
-   ✅ Ping passed: 6 (0.3%)
-   ⚡ Avg ping: 214ms
 
 📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile.txt
    Total защищённых: 76
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
+   ✅ Ping passed: 4 (5.3%)
+   ⚡ Avg ping: 223ms
+
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/6.txt
+   Total защищённых: 37
+   ✅ Ping passed: 1 (2.7%)
+   ⚡ Avg ping: 253ms
 
 📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile-2.txt
    Total защищённых: 87
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
+   ✅ Ping passed: 2 (2.3%)
+   ⚡ Avg ping: 361ms
 
-📌 https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/heads/main/githubmirror/ru-sni/vless.txt
-   Total защищённых: 163
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
+📌 https://raw.githubusercontent.com/10ium/V2Hub3/refs/heads/main/Split/Normal/reality
+   Total защищённых: 225
+   ✅ Ping passed: 5 (2.2%)
+   ⚡ Avg ping: 210ms
 
 📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt
    Total защищённых: 377
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
+   ✅ Ping passed: 6 (1.6%)
+   ⚡ Avg ping: 244ms
+
+📌 https://raw.githubusercontent.com/barry-far/V2ray-config/main/Splitted-By-Protocol/vless.txt
+   Total защищённых: 1967
+   ✅ Ping passed: 28 (1.4%)
+   ⚡ Avg ping: 173ms
+
+📌 https://raw.githubusercontent.com/F0rc3Run/F0rc3Run/main/splitted-by-protocol/vless.txt
+   Total защищённых: 434
+   ✅ Ping passed: 6 (1.4%)
+   ⚡ Avg ping: 194ms
+
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/24.txt
+   Total защищённых: 1922
+   ✅ Ping passed: 23 (1.2%)
+   ⚡ Avg ping: 214ms
+
+📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol-Secure/vless.txt
+   Total защищённых: 177
+   ✅ Ping passed: 2 (1.1%)
+   ⚡ Avg ping: 184ms
+
+📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol/vless.txt
+   Total защищённых: 177
+   ✅ Ping passed: 2 (1.1%)
+   ⚡ Avg ping: 190ms
+
+📌 https://raw.githubusercontent.com/hamedcode/port-based-v2ray-configs/main/sub/vless.txt
+   Total защищённых: 3376
+   ✅ Ping passed: 37 (1.1%)
+   ⚡ Avg ping: 185ms
+
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/22.txt
+   Total защищённых: 184
+   ✅ Ping passed: 2 (1.1%)
+   ⚡ Avg ping: 221ms
+
+📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS
+   Total защищённых: 2030
+   ✅ Ping passed: 22 (1.1%)
+   ⚡ Avg ping: 202ms
+
+📌 https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Vless.txt
+   Total защищённых: 1472
+   ✅ Ping passed: 14 (1.0%)
+   ⚡ Avg ping: 211ms
+
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/26.txt
+   Total защищённых: 863
+   ✅ Ping passed: 8 (0.9%)
+   ⚡ Avg ping: 228ms
+
+📌 https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/splitted/vless
+   Total защищённых: 869
+   ✅ Ping passed: 7 (0.8%)
+   ⚡ Avg ping: 201ms
 
 📌 https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/heads/main/githubmirror/clean/vless.txt
    Total защищённых: 2784
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
+   ✅ Ping passed: 14 (0.5%)
+   ⚡ Avg ping: 197ms
 
-📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt
-   Total защищённых: 69
+📌 https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/vless.txt
+   Total защищённых: 225
+   ✅ Ping passed: 1 (0.4%)
+   ⚡ Avg ping: 242ms
+
+📌 https://raw.githubusercontent.com/sevcator/5ubscrpt10n/refs/heads/main/protocols/vl.txt
+   Total защищённых: 9970
+   ✅ Ping passed: 44 (0.4%)
+   ⚡ Avg ping: 209ms
+
+📌 https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/refs/heads/main/Protocols/vless.txt
+   Total защищённых: 3060
+   ✅ Ping passed: 13 (0.4%)
+   ⚡ Avg ping: 206ms
+
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/1.txt
+   Total защищённых: 1992
+   ✅ Ping passed: 8 (0.4%)
+   ⚡ Avg ping: 212ms
+
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/23.txt
+   Total защищённых: 1544
+   ✅ Ping passed: 5 (0.3%)
+   ⚡ Avg ping: 219ms
+
+📌 https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/heads/main/githubmirror/ru-sni/vless.txt
+   Total защищённых: 163
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
@@ -46,13 +126,8 @@
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
-📌 https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/vless.txt
-   Total защищённых: 225
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/refs/heads/main/Protocols/vless.txt
-   Total защищённых: 3060
+📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt
+   Total защищённых: 69
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
@@ -66,41 +141,6 @@
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
-📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS
-   Total защищённых: 2030
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/F0rc3Run/F0rc3Run/main/splitted-by-protocol/vless.txt
-   Total защищённых: 434
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/barry-far/V2ray-config/main/Splitted-By-Protocol/vless.txt
-   Total защищённых: 1967
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/hamedcode/port-based-v2ray-configs/main/sub/vless.txt
-   Total защищённых: 3376
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/10ium/V2Hub3/refs/heads/main/Split/Normal/reality
-   Total защищённых: 225
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/splitted/vless
-   Total защищённых: 869
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&filter=vless
-   Total защищённых: 5
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
 📌 https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&name=MyVPN
    Total защищённых: 5
    ✅ Ping passed: 0 (0.0%)
@@ -111,38 +151,13 @@
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
-📌 https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Vless.txt
-   Total защищённых: 1472
+📌 https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&filter=vless
+   Total защищённых: 5
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
 📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/25.txt
-   Total защищённых: 94
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/26.txt
-   Total защищённых: 853
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/6.txt
-   Total защищённых: 33
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/24.txt
-   Total защищённых: 1922
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/22.txt
-   Total защищённых: 184
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/23.txt
-   Total защищённых: 1544
+   Total защищённых: 102
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
@@ -151,44 +166,24 @@
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
-📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol/vless.txt
-   Total защищённых: 177
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol-Secure/vless.txt
-   Total защищённых: 177
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/sevcator/5ubscrpt10n/refs/heads/main/protocols/vl.txt
-   Total защищённых: 9977
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/vless_configs.txt
-   Total защищённых: 67
-   ✅ Ping passed: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
 📌 https://gbr.mydan.online/configs
-   Total защищённых: 34
+   Total защищённых: 35
    ✅ Ping passed: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
 ======================================================================
 📈 ОБЩАЯ СТАТИСТИКА
 ======================================================================
-Всего защищённых прокси: 34708
-✅ Прошли ping: 6 (0.0%)
+Всего защищённых прокси: 34771
+✅ Прошли ping: 254 (0.7%)
 
 
 ======================================================================
 🔍 АНАЛИЗ ДУБЛИКАТОВ И УНИКАЛЬНОСТИ ИСТОЧНИКОВ
 ======================================================================
 
-📊 Всего уникальных конфигов в пуле: 53,789
-📊 Всего конфигов с учётом дублей: 125,726
+📊 Всего уникальных конфигов в пуле: 53,820
+📊 Всего конфигов с учётом дублей: 126,055
 📊 Коэффициент дублирования: 2.34x
 
 📌 ДЕТАЛЬНАЯ СТАТИСТИКА ПО ИСТОЧНИКАМ:
@@ -196,40 +191,40 @@
    Источник                                              Всего    Уник.   Дублей    % уник.      Пинг%       Статус
 ------------------------------------------------------------------------------------------------------------------------
    https://raw.githubusercontent.com/ebrasha/free-...    20339    16459     1328      80.9%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goi...      346      218      128      63.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goi...     2348     1457      891      62.1%       0.0%  🔴 МУСОР
-   https://gbr.mydan.online/configs                         77       41       36      53.2%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goi...      340      174      159      51.2%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goi...     3316     1451     1865      43.8%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/sevcator/5ubs...    33949    12922     6828      38.1%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goi...      346      216      130      62.4%       1.1%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goi...     2334     1345      989      57.6%       0.9%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goi...      352      183      162      52.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goi...     3316     1450     1866      43.7%       0.3%  🔴 МУСОР
+   https://gbr.mydan.online/configs                         78       34       44      43.6%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/sevcator/5ubs...    33949    12922     6828      38.1%       0.4%  🔴 МУСОР
    https://raw.githubusercontent.com/Mosifree/-FRE...      472      169       41      35.8%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/10ium/ScrapeA...     4361     1452     2026      33.3%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/kort0881/vpn-...     8772     2094     2292      23.9%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/10ium/ScrapeA...     4361     1452     2026      33.3%       1.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/kort0881/vpn-...     8772     2095     2291      23.9%       0.5%  🔴 МУСОР
    https://raw.githubusercontent.com/Subzio/subzio...      479       90      228      18.8%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-c...      596       97      499      16.3%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goi...     4938      628     1841      12.7%       0.3%  🔴 МУСОР
-   https://raw.githubusercontent.com/hamedcode/por...    12146      658     7247       5.4%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/ShatakVPN/Con...      619       32      569       5.2%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/SoliSpirit/v2...     9888      503     4441       5.1%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/STR97/STRUGOV...     3945       76     2972       1.9%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goi...       65        1       58       1.5%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/VovaplusEXP/p...      472        5      467       1.1%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/igareck/vpn-c...      596       97      499      16.3%       1.6%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goi...     5252      665     1961      12.7%       0.4%  🔴 МУСОР
+   https://raw.githubusercontent.com/hamedcode/por...    12146      658     7247       5.4%       1.1%  🔴 МУСОР
+   https://raw.githubusercontent.com/ShatakVPN/Con...      619       32      569       5.2%       0.4%  🔴 МУСОР
+   https://raw.githubusercontent.com/SoliSpirit/v2...     9888      511     4433       5.2%       0.4%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goi...       81        2       74       2.5%       2.7%  🔴 МУСОР
+   https://raw.githubusercontent.com/STR97/STRUGOV...     3945       76     2972       1.9%       1.1%  🔴 МУСОР
+   https://raw.githubusercontent.com/VovaplusEXP/p...      472        5      467       1.1%       1.1%  🔴 МУСОР
    https://raw.githubusercontent.com/igareck/vpn-c...      127        1      126       0.8%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/F0rc3Run/F0rc...     1368        6     1057       0.4%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/barry-far/V2r...     7817        2     5312       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-c...      150        0      150       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-c...      150        0      150       0.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/F0rc3Run/F0rc...     1368        6     1057       0.4%       1.4%  🔴 МУСОР
+   https://raw.githubusercontent.com/barry-far/V2r...     7817        2     5312       0.0%       1.4%  🔴 МУСОР
+   https://raw.githubusercontent.com/igareck/vpn-c...      150        0      150       0.0%       2.3%  🔴 МУСОР
    https://raw.githubusercontent.com/kort0881/vpn-...      358        0      358       0.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/igareck/vpn-c...      150        0      150       0.0%       5.3%  🔴 МУСОР
    https://raw.githubusercontent.com/igareck/vpn-c...      118        0      118       0.0%       0.0%  🔴 МУСОР
    https://raw.githubusercontent.com/AvenCores/goi...       11        0       11       0.0%       0.0%  🔴 МУСОР
    https://raw.githubusercontent.com/arshiacomplus...      235        0      235       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/10ium/V2Hub3/...      467        0      466       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/Surfboardv2ra...     3319        0     2515       0.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/Surfboardv2ra...     3319        0     2515       0.0%       0.8%  🔴 МУСОР
+   https://raw.githubusercontent.com/10ium/V2Hub3/...      467        0      466       0.0%       2.2%  🔴 МУСОР
    https://vlesstrojan.alexanderyurievich88.worker...        5        0        5       0.0%       0.0%  🔴 МУСОР
    https://vlesstrojan.alexanderyurievich88.worker...        5        0        5       0.0%       0.0%  🔴 МУСОР
    https://vlesstrojan.alexanderyurievich88.worker...        5        0        5       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goi...     3786        0     2902       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/VovaplusEXP/p...      337        0      337       0.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/VovaplusEXP/p...      337        0      337       0.0%       1.1%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goi...     3786        0     2902       0.0%       1.2%  🔴 МУСОР
 
 💡 РЕКОМЕНДАЦИИ ПО ОПТИМИЗАЦИИ:
 ----------------------------------------------------------------------
@@ -238,17 +233,17 @@
    • https://raw.githubusercontent.com/igareck/vpn-c...
      (уникальных: 0, проверок: 150)
    • https://raw.githubusercontent.com/igareck/vpn-c...
-     (уникальных: 0, проверок: 150)
-   • https://raw.githubusercontent.com/kort0881/vpn-...
-     (уникальных: 0, проверок: 358)
-   • https://raw.githubusercontent.com/igareck/vpn-c...
      (уникальных: 97, проверок: 596)
    • https://raw.githubusercontent.com/kort0881/vpn-...
-     (уникальных: 2094, проверок: 8772)
+     (уникальных: 0, проверок: 358)
+   • https://raw.githubusercontent.com/kort0881/vpn-...
+     (уникальных: 2095, проверок: 8772)
+   • https://raw.githubusercontent.com/igareck/vpn-c...
+     (уникальных: 0, проверок: 150)
 
 📊 ПОТЕНЦИАЛЬНАЯ ЭКОНОМИЯ:
    • Удаляется источников: 35
-   • Потеряется уникальных: 38536 (71.6%)
-   • Освободится проверок: 125726 (100.0%)
-   • НОВОЕ ВРЕМЯ: ~0 сек (было 2884 сек)
+   • Потеряется уникальных: 38470 (71.5%)
+   • Освободится проверок: 126055 (100.0%)
+   • НОВОЕ ВРЕМЯ: ~0 сек (было 2891 сек)
 ======================================================================
