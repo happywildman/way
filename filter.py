@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.20
+Power v6.0
 ====================================
-- ТОЛЬКО HTTPS (HTTP удален)
-- ВСЕ ПРОТОКОЛЫ (vless, vmess, trojan, ss, ssr, hy2, hysteria2)
+- Полностью асинхронная проверка через async.py
+- Используется эталонный URL: https://www.gstatic.com/generate_204
+- Таймаут: 3 сек, одновременных проверок: 200
+- Все протоколы собираются
 - Дедупликация до проверки
 ====================================
 """
@@ -24,6 +26,10 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import socket
 import ssl
+import asyncio
+
+# Импорт асинхронного модуля
+from async import ProxyChecker
 
 # Настройка логирования
 logging.basicConfig(
@@ -35,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class VlessCollector:
-    """Двухэтапный сборщик подписок (ВСЕ ПРОТОКОЛЫ, ТОЛЬКО HTTPS)."""
+    """Двухэтапный сборщик подписок (ВСЕ ПРОТОКОЛЫ, асинхронная проверка)."""
     
     def __init__(self,
                  sources_file: str = 'sources.txt',
@@ -64,6 +70,9 @@ class VlessCollector:
         self.download_workers = download_workers
         self.check_workers = check_workers
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        
+        # Асинхронный проверщик
+        self.checker = ProxyChecker()
         
         # Статистика по источникам
         self.source_stats = {}
@@ -192,6 +201,42 @@ class VlessCollector:
         
         return results
     
+    def extract_proxy_string(self, config: str) -> Optional[str]:
+        """
+        Извлекает из конфига строку для прокси в формате protocol://host:port
+        """
+        try:
+            # Определяем протокол
+            if config.startswith('ss://'):
+                protocol = 'socks5'  # ss обычно работает через SOCKS5
+            elif config.startswith('ssr://'):
+                protocol = 'socks5'
+            elif config.startswith('trojan://'):
+                protocol = 'trojan'  # trojan использует HTTPS
+            elif config.startswith('vless://'):
+                protocol = 'vless'    # vless может быть любым
+            elif config.startswith('vmess://'):
+                protocol = 'vmess'    # vmess может быть любым
+            elif config.startswith('hy2://') or config.startswith('hysteria2://'):
+                protocol = 'hysteria2'
+            else:
+                protocol = 'http'     # по умолчанию
+            
+            # Извлекаем host:port
+            after_proto = config.split('://', 1)[1]
+            if '@' in after_proto:
+                after_at = after_proto.split('@', 1)[1]
+                host_part = after_at.split('?')[0].split('#')[0]
+            else:
+                host_part = after_proto.split('?')[0].split('#')[0]
+            
+            # Для aiohttp нужен именно такой формат
+            return f"{protocol}://{host_part}"
+            
+        except Exception as e:
+            logger.debug(f"Не удалось извлечь proxy строку из {config[:50]}: {e}")
+            return None
+    
     def is_valid_config(self, config: str) -> Tuple[bool, str, int]:
         """Проверяет валидность конфига (любого протокола)."""
         try:
@@ -200,15 +245,17 @@ class VlessCollector:
                 if '@' in after_proto:
                     after_at = after_proto.split('@', 1)[1]
                     host_part = after_at.split('?')[0].split('#')[0]
-                    
-                    if ':' in host_part:
-                        host, port_str = host_part.split(':')[:2]
-                        port = int(port_str)
-                    else:
-                        host = host_part
-                        port = 443
-                    
-                    return True, host, port
+                else:
+                    host_part = after_proto.split('?')[0].split('#')[0]
+                
+                if ':' in host_part:
+                    host, port_str = host_part.split(':')[:2]
+                    port = int(port_str)
+                else:
+                    host = host_part
+                    port = 443
+                
+                return True, host, port
             return False, "", 0
         except:
             return False, "", 0
@@ -221,49 +268,10 @@ class VlessCollector:
         """Исправляет &; на &, остальное без изменений."""
         return config.replace('&;', '&')
     
-    def check_single(self, config: str, host: str, port: int, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
-        """Проверяет один конфиг (ТОЛЬКО HTTPS)."""
-        
-        # TCP проверка
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(self.tcp_timeout)
-            result = sock.connect_ex((host, port))
-            sock.close()
-            if result != 0:
-                return None, None, source_url
-        except:
-            return None, None, source_url
-        
-        # ТОЛЬКО HTTPS
-        test_url = f"https://{host}:{port}/generate_204"
-        try:
-            start = time.time()
-            req = urllib.request.Request(
-                test_url,
-                method='HEAD',
-                headers={'User-Agent': self.user_agent, 'Host': host}
-            )
-            
-            context = ssl.create_default_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            
-            with urllib.request.urlopen(req, timeout=self.check_timeout, context=context) as resp:
-                elapsed = (time.time() - start) * 1000
-                
-                if resp.status == 204:
-                    return self.normalize_config(config, elapsed), elapsed, source_url
-                else:
-                    return None, None, source_url
-                    
-        except Exception as e:
-            return None, None, source_url
-    
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
-        """ШАГ 2: Проверяет все сервера."""
+        """ШАГ 2: Проверяет все сервера (асинхронно)."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (HTTPS only)")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (асинхронно, HTTPS only)")
         print("="*70)
         
         if not os.path.exists(self.list_file):
@@ -282,15 +290,17 @@ class VlessCollector:
                     source_configs[current_source].append(line)
         
         # Собираем все конфиги с источниками
-        all_configs_with_sources = []
+        all_configs_with_sources = []  # (source_url, config, host, port, proxy_string)
         source_totals = defaultdict(int)
         
         for source_url, configs in source_configs.items():
             for config in configs:
                 is_valid, host, port = self.is_valid_config(config)
                 if is_valid:
-                    all_configs_with_sources.append((source_url, config, host, port))
-                    source_totals[source_url] += 1
+                    proxy_string = self.extract_proxy_string(config)
+                    if proxy_string:
+                        all_configs_with_sources.append((source_url, config, host, port, proxy_string))
+                        source_totals[source_url] += 1
         
         logger.info(f"🌍 Найдено серверов (с дубликатами): {len(all_configs_with_sources)}")
         
@@ -299,48 +309,45 @@ class VlessCollector:
         
         # Дедупликация до проверки
         unique_configs_map = {}
-        for source_url, config, host, port in all_configs_with_sources:
+        for source_url, config, host, port, proxy_string in all_configs_with_sources:
             key = self.get_config_key(config)
             if key not in unique_configs_map:
-                unique_configs_map[key] = (source_url, config, host, port)
+                unique_configs_map[key] = (source_url, config, host, port, proxy_string)
         
         all_items = list(unique_configs_map.values())
         
         logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных серверов")
         logger.info(f"📊 Сэкономлено проверок: {len(all_configs_with_sources) - len(all_items)}")
         
-        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c)...")
+        # Подготавливаем список прокси для асинхронной проверки
+        proxy_list = [item[4] for item in all_items]  # proxy_string
         
-        # Проверка
+        logger.info(f"🚀 Запуск асинхронной проверки ({self.checker.concurrent} потоков, таймаут={self.checker.timeout.total}с)...")
+        
+        # Асинхронная проверка
+        start_time = time.time()
+        alive_results = self.checker.check(proxy_list)  # возвращает [(proxy_string, speed)]
+        
+        # Создаем словарь для быстрого поиска по proxy_string
+        alive_dict = {proxy: speed for proxy, speed in alive_results}
+        
+        # Формируем результаты
         working_all = {}
         working_fast = {}
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
-        start_time = time.time()
-        checked = 0
+        # Маппим результаты обратно на конфиги
+        for source_url, config, host, port, proxy_string in all_items:
+            if proxy_string in alive_dict:
+                speed = alive_dict[proxy_string]
+                working_all[config] = speed
+                if speed <= self.speed_threshold:
+                    working_fast[config] = speed
+                    source_passed[source_url] += 1
+                    source_pings[source_url].append(speed)
         
-        with ThreadPoolExecutor(max_workers=self.check_workers) as executor:
-            future_to_item = {
-                executor.submit(self.check_single, config, host, port, source_url): (source_url, config, host, port)
-                for source_url, config, host, port in all_items
-            }
-            
-            for future in as_completed(future_to_item):
-                source_url, config, host, port = future_to_item[future]
-                result_config, speed, _ = future.result()
-                checked += 1
-                
-                if result_config:
-                    working_all[result_config] = speed
-                    if speed <= self.speed_threshold:
-                        working_fast[result_config] = speed
-                        source_passed[source_url] += 1
-                        source_pings[source_url].append(speed)
-                
-                if checked % 100 == 0:
-                    elapsed = time.time() - start_time
-                    logger.info(f"  📊 Прогресс: {checked}/{len(all_items)} ({checked/elapsed:.1f} серв/сек)")
+        elapsed = time.time() - start_time
         
         # Статистика
         for source_url in source_totals:
@@ -353,8 +360,6 @@ class VlessCollector:
                 'passed': passed,
                 'avg_ping': avg_ping
             }
-        
-        elapsed = time.time() - start_time
         
         print("\n" + "="*70)
         print(f"✅ ПРОВЕРКА ЗАВЕРШЕНА:")
@@ -426,12 +431,15 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.20")
+        print("🚀 POWER v6.0")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c")
         print("ПРОТОКОЛЫ: ВСЕ (vless, vmess, trojan, ss, ssr, hy2, hysteria2)")
-        print("ПРОВЕРКА: ТОЛЬКО HTTPS")
+        print("ПРОВЕРКА: АСИНХРОННАЯ через async.py")
+        print(f"  URL: {self.checker.check_url}")
+        print(f"  Таймаут: {self.checker.timeout.total}с")
+        print(f"  Конкурентность: {self.checker.concurrent}")
         print("ДЕДУПЛИКАЦИЯ: ДО ПРОВЕРКИ")
         print("GeoIP: УДАЛЕН | trash: УДАЛЕН")
         print("="*70)
