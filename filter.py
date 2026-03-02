@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.12
+Power v5.6
 ====================================
 Файловая структура:
 - sources.txt  → список RAW-ссылок на подписки
@@ -11,10 +11,6 @@ Power v5.12
 - trash.txt    → битые и медленные
 - 500.txt      → топ-500 лучших (только ссылки)
 - stat.txt     → статистика + анализ дубликатов
-
-ВАЖНО: 
-- Проверка только по 204 (как в рабочей версии v5.5)
-- Названия серверов сохраняются оригинальными
 ====================================
 """
 
@@ -263,9 +259,9 @@ class VlessCollector:
         return config
     
     def check_single(self, config: str, host: str, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
-        """Проверяет один конфиг (только 204, как в v5.5)."""
+        """Проверяет один конфиг."""
         
-        # Шаг 1: TCP проверка
+        # TCP проверка
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(3)
@@ -279,7 +275,7 @@ class VlessCollector:
             self._save_to_trash(config, "TCP ошибка")
             return None, None, source_url
         
-        # Шаг 2: 204 проверка со временем (только это!)
+        # 204 проверка
         test_url = f"http://{host}/generate_204"
         try:
             start = time.time()
@@ -301,8 +297,8 @@ class VlessCollector:
                 else:
                     self._save_to_trash(config, f"код {resp.status}")
                     return None, None, source_url
-        except Exception as e:
-            self._save_to_trash(config, f"ошибка 204")
+        except:
+            self._save_to_trash(config, "ошибка 204")
             return None, None, source_url
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, List[str]]]:
@@ -353,7 +349,7 @@ class VlessCollector:
             logger.warning("⚠️ Нет конфигов для проверки!")
             return {}, source_configs
         
-        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP=3c, HTTP=6c)...")
+        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков)...")
         
         # Параллельная проверка
         working = {}
@@ -602,7 +598,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.12")
+        print("🚀 POWER v5.6")
         print("="*70)
         print("ФАЙЛОВАЯ СТРУКТУРА:")
         print("  sources.txt  → список RAW-ссылок на подписки")
@@ -611,9 +607,6 @@ class VlessCollector:
         print("  trash.txt    → битые и медленные")
         print("  500.txt      → топ-500 лучших (только ссылки)")
         print("  stat.txt     → статистика + анализ дубликатов")
-        print("="*70)
-        print("ПРОВЕРКА: только 204 (как в рабочей версии)")
-        print("НАЗВАНИЯ: оригинальные, без изменений")
         print("="*70)
         
         start_total = time.time()
