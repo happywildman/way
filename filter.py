@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v6.2
+Power v7.0
 ====================================
-- Асинхронная проверка через asynctest.py
+- Асинхронная проверка через curl_cffi
 - URL: https://www.gstatic.com/generate_204
-- Таймаут: 3 сек, конкурентность: 200
+- Таймаут: 2.5 сек
+- Конкурентность: 50
+- Impersonate: chrome110
 ====================================
 """
 
@@ -26,7 +28,7 @@ import socket
 import ssl
 import asyncio
 
-# Импорт асинхронного модуля (новое имя)
+# Импорт асинхронного модуля (curl_cffi версия)
 from asynctest import AsyncChecker
 
 # Настройка логирования
@@ -39,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class VlessCollector:
-    """Двухэтапный сборщик подписок (ВСЕ ПРОТОКОЛЫ, асинхронная проверка)."""
+    """Двухэтапный сборщик подписок (ВСЕ ПРОТОКОЛЫ, проверка через curl_cffi)."""
     
     def __init__(self,
                  sources_file: str = 'sources.txt',
@@ -50,10 +52,10 @@ class VlessCollector:
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: int = 3,
+                 check_timeout: float = 2.5,        # изменено на float для curl_cffi
                  tcp_timeout: int = 2,
                  download_workers: int = 10,
-                 check_workers: int = 50):
+                 check_workers: int = 50):           # для совместимости оставляем
         
         self.sources_file = sources_file
         self.list_file = list_file
@@ -69,8 +71,11 @@ class VlessCollector:
         self.check_workers = check_workers
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         
-        # Асинхронный проверщик
-        self.checker = AsyncChecker()
+        # Асинхронный проверщик (curl_cffi версия)
+        self.checker = AsyncChecker(
+            timeout=self.check_timeout,
+            concurrent=50  # фиксированное значение из asynctest.py
+        )
         
         # Статистика по источникам
         self.source_stats = {}
@@ -129,7 +134,7 @@ class VlessCollector:
                 for pattern in all_patterns:
                     configs.extend(re.findall(pattern, text))
                 
-                # Убираем дубликаты
+                # Убираем дубликаты в рамках одной подписки
                 configs = list(set(configs))
                 
                 logger.debug(f"  {url}: {len(configs)} конфигов (все протоколы)")
@@ -199,40 +204,12 @@ class VlessCollector:
         
         return results
     
-    def extract_proxy_string(self, config: str) -> Optional[str]:
+    def get_proxy_string(self, config: str) -> str:
         """
-        Извлекает из конфига строку для проверки в формате protocol://host:port
+        Возвращает исходный конфиг для проверки через curl_cffi.
+        curl_cffi принимает оригинальные строки (vless://, ss://, trojan:// и т.д.)
         """
-        try:
-            # Определяем протокол
-            if config.startswith('ss://'):
-                protocol = 'socks5'
-            elif config.startswith('ssr://'):
-                protocol = 'socks5'
-            elif config.startswith('trojan://'):
-                protocol = 'trojan'
-            elif config.startswith('vless://'):
-                protocol = 'vless'
-            elif config.startswith('vmess://'):
-                protocol = 'vmess'
-            elif config.startswith('hy2://') or config.startswith('hysteria2://'):
-                protocol = 'hysteria2'
-            else:
-                protocol = 'http'
-            
-            # Извлекаем host:port
-            after_proto = config.split('://', 1)[1]
-            if '@' in after_proto:
-                after_at = after_proto.split('@', 1)[1]
-                host_part = after_at.split('?')[0].split('#')[0]
-            else:
-                host_part = after_proto.split('?')[0].split('#')[0]
-            
-            return f"{protocol}://{host_part}"
-            
-        except Exception as e:
-            logger.debug(f"Не удалось извлечь строку из {config[:50]}: {e}")
-            return None
+        return config  # просто возвращаем как есть
     
     def is_valid_config(self, config: str) -> Tuple[bool, str, int]:
         """Проверяет валидность конфига (любого протокола)."""
@@ -266,9 +243,9 @@ class VlessCollector:
         return config.replace('&;', '&')
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
-        """ШАГ 2: Проверяет все сервера (асинхронно)."""
+        """ШАГ 2: Проверяет все сервера (асинхронно через curl_cffi)."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (асинхронно)")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (curl_cffi)")
         print("="*70)
         
         if not os.path.exists(self.list_file):
@@ -287,17 +264,15 @@ class VlessCollector:
                     source_configs[current_source].append(line)
         
         # Собираем все конфиги с источниками
-        all_configs_with_sources = []  # (source_url, config, host, port, proxy_string)
+        all_configs_with_sources = []  # (source_url, config, host, port)
         source_totals = defaultdict(int)
         
         for source_url, configs in source_configs.items():
             for config in configs:
                 is_valid, host, port = self.is_valid_config(config)
                 if is_valid:
-                    proxy_string = self.extract_proxy_string(config)
-                    if proxy_string:
-                        all_configs_with_sources.append((source_url, config, host, port, proxy_string))
-                        source_totals[source_url] += 1
+                    all_configs_with_sources.append((source_url, config, host, port))
+                    source_totals[source_url] += 1
         
         logger.info(f"🌍 Найдено серверов (с дубликатами): {len(all_configs_with_sources)}")
         
@@ -306,10 +281,10 @@ class VlessCollector:
         
         # Дедупликация до проверки
         unique_configs_map = {}
-        for source_url, config, host, port, proxy_string in all_configs_with_sources:
+        for source_url, config, host, port in all_configs_with_sources:
             key = self.get_config_key(config)
             if key not in unique_configs_map:
-                unique_configs_map[key] = (source_url, config, host, port, proxy_string)
+                unique_configs_map[key] = (source_url, config, host, port)
         
         all_items = list(unique_configs_map.values())
         
@@ -317,16 +292,16 @@ class VlessCollector:
         logger.info(f"📊 Сэкономлено проверок: {len(all_configs_with_sources) - len(all_items)}")
         
         # Подготавливаем список для асинхронной проверки
-        proxy_list = [item[4] for item in all_items]
+        proxy_list = [item[1] for item in all_items]  # item[1] = config
         
-        logger.info(f"🚀 Запуск асинхронной проверки ({self.checker.concurrent} потоков, таймаут={self.checker.timeout.total}с)...")
+        logger.info(f"🚀 Запуск асинхронной проверки (конкурентность=50, таймаут={self.checker.timeout}с, impersonate={self.checker.impersonate})...")
         
-        # Асинхронная проверка
+        # Асинхронная проверка через curl_cffi
         start_time = time.time()
         alive_results = self.checker.check(proxy_list)
         
         # Создаем словарь для быстрого поиска
-        alive_dict = {proxy: speed for proxy, speed in alive_results}
+        alive_dict = {config: speed for config, speed in alive_results}
         
         # Формируем результаты
         working_all = {}
@@ -334,9 +309,9 @@ class VlessCollector:
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
-        for source_url, config, host, port, proxy_string in all_items:
-            if proxy_string in alive_dict:
-                speed = alive_dict[proxy_string]
+        for source_url, config, host, port in all_items:
+            if config in alive_dict:
+                speed = alive_dict[config]
                 working_all[config] = speed
                 if speed <= self.speed_threshold:
                     working_fast[config] = speed
@@ -372,7 +347,7 @@ class VlessCollector:
         with open(self.stat_file, 'w', encoding='utf-8') as f:
             f.write("="*70 + "\n📊 СТАТИСТИКА\n" + "="*70 + "\n\n")
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c\n\n")
+            f.write(f"Таймаут проверки: {self.check_timeout}с\n\n")
             
             total_all = passed_all = 0
             for url, stats in sorted(self.source_stats.items(), key=lambda x: x[1]['passed']/x[1]['total'] if x[1]['total'] else 0, reverse=True):
@@ -426,15 +401,12 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v6.2")
+        print("🚀 POWER v7.0")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
-        print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c")
+        print(f"ТАЙМАУТ: {self.check_timeout}с")
         print("ПРОТОКОЛЫ: ВСЕ")
-        print("ПРОВЕРКА: АСИНХРОННАЯ через asynctest.py")
-        print(f"  URL: {self.checker.check_url}")
-        print(f"  Таймаут: {self.checker.timeout.total}с")
-        print(f"  Конкурентность: {self.checker.concurrent}")
+        print("ПРОВЕРКА: curl_cffi (имитация Chrome 110)")
         print("ДЕДУПЛИКАЦИЯ: ДО ПРОВЕРКИ")
         print("GeoIP: УДАЛЕН | trash: УДАЛЕН")
         print("="*70)
