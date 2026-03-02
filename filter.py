@@ -2,15 +2,21 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v5.7
+Power v5.8
 ====================================
 Файловая структура:
 - sources.txt  → список RAW-ссылок на подписки
-- list.txt     → сырые непроверенные сервера
-- out.txt      → проверенные рабочие (только ссылки)
+- list.txt     → сырые непроверенные сервера (временный)
+- all.txt      → ВСЕ сервера, прошедшие ping 204 (любые протоколы)
+- out.txt      → быстрые сервера (ping < 800ms)
 - trash.txt    → битые и медленные
-- 500.txt      → топ-500 лучших (только ссылки)
-- stat.txt     → статистика + анализ дубликатов (с полными ссылками)
+- 500.txt      → топ-500 лучших
+- stat.txt     → статистика + анализ дубликатов
+
+ИЗМЕНЕНИЯ v5.8:
+- Добавлен all.txt (все протоколы, любой порт)
+- Таймауты: TCP=2c, HTTP=4c
+- Убраны фильтры протоколов и порта (закомментированы)
 ====================================
 """
 
@@ -43,18 +49,21 @@ class VlessCollector:
     def __init__(self,
                  sources_file: str = 'sources.txt',
                  list_file: str = 'list.txt',
+                 all_file: str = 'all.txt',           # НОВЫЙ ФАЙЛ
                  out_file: str = 'out.txt',
                  trash_file: str = 'trash.txt',
                  stat_file: str = 'stat.txt',
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: int = 6,
+                 check_timeout: int = 4,               # HTTP таймаут 4 сек
+                 tcp_timeout: int = 2,                  # TCP таймаут 2 сек
                  download_workers: int = 10,
                  check_workers: int = 50):
         
         self.sources_file = sources_file
         self.list_file = list_file
+        self.all_file = all_file                        # НОВЫЙ ФАЙЛ
         self.out_file = out_file
         self.trash_file = trash_file
         self.stat_file = stat_file
@@ -62,6 +71,7 @@ class VlessCollector:
         self.speed_threshold = speed_threshold
         self.download_timeout = download_timeout
         self.check_timeout = check_timeout
+        self.tcp_timeout = tcp_timeout
         self.download_workers = download_workers
         self.check_workers = check_workers
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -72,23 +82,23 @@ class VlessCollector:
         # Статистика по источникам
         self.source_stats = {}
         
-        # Маркеры защищённых соединений
-        self.protected_markers = [
-            'security=reality',
-            'pbk=',           # публичный ключ reality
-            'fp=',            # fingerprint
-            'sni=',           # Server Name Indication
-            'flow=xtls-rprx-vision',
-            'type=grpc',
-            'type=ws',
-            'type=xhttp',
-            'mode=gun',       # grpc
-            'mode=multi',
-            'mode=packet',
-            'mode=quic',
-            'serviceName=',   # grpc
-            'extra='
-        ]
+        # Маркеры защищённых соединений (ЗАКОММЕНТИРОВАНЫ)
+        # self.protected_markers = [
+        #     'security=reality',
+        #     'pbk=',           # публичный ключ reality
+        #     'fp=',            # fingerprint
+        #     'sni=',           # Server Name Indication
+        #     'flow=xtls-rprx-vision',
+        #     'type=grpc',
+        #     'type=ws',
+        #     'type=xhttp',
+        #     'mode=gun',       # grpc
+        #     'mode=multi',
+        #     'mode=packet',
+        #     'mode=quic',
+        #     'serviceName=',   # grpc
+        #     'extra='
+        # ]
         
     def _load_trash(self) -> Set[str]:
         """Загружает список битых серверов."""
@@ -148,6 +158,7 @@ class VlessCollector:
                     except:
                         pass
                 
+                # Извлекаем ВСЕ vless ссылки
                 vless_pattern = r'vless://[a-f0-9-]+@[^#\s]+(?:#[^\s]*)?'
                 configs = re.findall(vless_pattern, text)
                 
@@ -227,23 +238,30 @@ class VlessCollector:
         return results
     
     def is_protected_config(self, config: str) -> Tuple[bool, str]:
-        """Проверяет защищённый конфиг."""
+        """
+        Проверяет конфиг (ВСЕ ПРОТОКОЛЫ, ЛЮБОЙ ПОРТ).
+        Возвращает (True, host) для любого валидного vless конфига.
+        """
         try:
             after_at = config.split('@')[1]
             host_part = after_at.split('?')[0]
             
             if ':' in host_part:
                 host, port = host_part.split(':')[:2]
-                if port != '443':
-                    return False, ""
+                # ПРОВЕРКА ПОРТА ЗАКОММЕНТИРОВАНА
+                # if port != '443':
+                #     return False, ""
             else:
                 return False, ""
             
-            for marker in self.protected_markers:
-                if marker in config:
-                    return True, host
+            # ПРОВЕРКА ПРОТОКОЛОВ ЗАКОММЕНТИРОВАНА
+            # for marker in self.protected_markers:
+            #     if marker in config:
+            #         return True, host
             
-            return False, ""
+            # Возвращаем True для любого валидного vless конфига
+            return True, host
+            
         except:
             return False, ""
     
@@ -261,10 +279,10 @@ class VlessCollector:
     def check_single(self, config: str, host: str, source_url: str) -> Tuple[Optional[str], Optional[float], str]:
         """Проверяет один конфиг."""
         
-        # TCP проверка
+        # TCP проверка (таймаут 2 сек)
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(3)
+            sock.settimeout(self.tcp_timeout)  # 2 секунды
             result = sock.connect_ex((host, 443))
             sock.close()
             
@@ -275,7 +293,7 @@ class VlessCollector:
             self._save_to_trash(config, "TCP ошибка")
             return None, None, source_url
         
-        # 204 проверка
+        # 204 проверка (таймаут 4 сек)
         test_url = f"http://{host}/generate_204"
         try:
             start = time.time()
@@ -330,7 +348,7 @@ class VlessCollector:
                 elif line and not line.startswith('#') and current_source:
                     source_configs[current_source].append(line)
         
-        # Собираем все защищённые конфиги для проверки
+        # Собираем ВСЕ конфиги для проверки (БЕЗ ФИЛЬТРАЦИИ)
         all_items = []  # (source_url, config, host)
         source_totals = defaultdict(int)
         
@@ -343,16 +361,17 @@ class VlessCollector:
                     all_items.append((source_url, config, host))
                     source_totals[source_url] += 1
         
-        logger.info(f"🔍 Найдено {len(all_items)} защищённых конфигов для проверки")
+        logger.info(f"🔍 Найдено {len(all_items)} конфигов для проверки")
         
         if not all_items:
             logger.warning("⚠️ Нет конфигов для проверки!")
             return {}, source_configs
         
-        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков)...")
+        logger.info(f"🚀 Запуск проверки ({self.check_workers} потоков, TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c)...")
         
         # Параллельная проверка
-        working = {}
+        working_all = {}      # для all.txt (все прошедшие 204)
+        working_fast = {}      # для out.txt (скорость < 800ms)
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
@@ -372,9 +391,14 @@ class VlessCollector:
                     checked += 1
                     
                     if result_config:
-                        working[result_config] = speed
-                        source_passed[source_url] += 1
-                        source_pings[source_url].append(speed)
+                        # Сохраняем ВСЕ прошедшие 204 в all.txt
+                        working_all[result_config] = speed
+                        
+                        # Если скорость хорошая - сохраняем в out.txt
+                        if speed <= self.speed_threshold:
+                            working_fast[result_config] = speed
+                            source_passed[source_url] += 1
+                            source_pings[source_url].append(speed)
                     
                     # Прогресс каждые 100 проверок
                     if checked % 100 == 0:
@@ -386,7 +410,7 @@ class VlessCollector:
                     logger.debug(f"Ошибка при проверке {host}: {e}")
                     checked += 1
         
-        # Формируем статистику по источникам
+        # Формируем статистику по источникам (только для быстрых)
         for source_url in source_totals:
             total = source_totals[source_url]
             passed = source_passed[source_url]
@@ -403,15 +427,16 @@ class VlessCollector:
         print("\n" + "="*70)
         print(f"✅ ПРОВЕРКА ЗАВЕРШЕНА:")
         print(f"   - Проверено: {len(all_items)} серверов")
-        print(f"   - Рабочих: {len(working)}")
+        print(f"   - Прошли ping 204: {len(working_all)}")
+        print(f"   - Быстрых (<{self.speed_threshold}ms): {len(working_fast)}")
         print(f"   - Время: {elapsed:.1f} сек")
         print(f"   - Скорость: {len(all_items)/elapsed:.1f} серв/сек")
         print("="*70)
         
-        return working, source_configs
+        return working_all, working_fast, source_configs
     
-    def save_stats(self, working: Dict[str, float], source_configs: Dict[str, List[str]]):
-        """Сохраняет статистику в stat.txt с полным анализом и полными ссылками."""
+    def save_stats(self, working_fast: Dict[str, float], source_configs: Dict[str, List[str]]):
+        """Сохраняет статистику в stat.txt."""
         with open(self.stat_file, 'w', encoding='utf-8') as f:
             # ========== ОСНОВНАЯ СТАТИСТИКА ==========
             f.write("="*70 + "\n")
@@ -419,8 +444,8 @@ class VlessCollector:
             f.write("="*70 + "\n\n")
             
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP=5c, HTTP=9c\n")
-            f.write(f"Типы: reality, grpc, ws, xhttp, vision\n\n")
+            f.write(f"Таймауты: TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c\n")
+            f.write(f"Типы: ВСЕ ПРОТОКОЛЫ\n\n")
             
             total_all = 0
             passed_all = 0
@@ -440,7 +465,7 @@ class VlessCollector:
                 percent = (stats['passed'] / stats['total'] * 100) if stats['total'] > 0 else 0
                 
                 f.write(f"📌 {url}\n")
-                f.write(f"   Total защищённых: {stats['total']}\n")
+                f.write(f"   Total: {stats['total']}\n")
                 f.write(f"   ✅ Ping passed: {stats['passed']} ({percent:.1f}%)\n")
                 f.write(f"   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
             
@@ -449,7 +474,7 @@ class VlessCollector:
             f.write("="*70 + "\n")
             
             total_percent = (passed_all / total_all * 100) if total_all > 0 else 0
-            f.write(f"Всего защищённых прокси: {total_all}\n")
+            f.write(f"Всего проверено конфигов: {total_all}\n")
             f.write(f"✅ Прошли ping: {passed_all} ({total_percent:.1f}%)\n\n")
             
             # ========== АНАЛИЗ ДУБЛИКАТОВ ==========
@@ -526,11 +551,8 @@ class VlessCollector:
                     else:
                         status = "🔴 МУСОР"
                     
-                    # ПОЛНЫЙ URL БЕЗ ОБРЕЗАНИЯ
-                    full_url = source
-                    
-                    f.write("   {:80} {:8d} {:8d} {:8d} {:9.1f}% {:9.1f}%  {}\n".format(
-                        full_url, total, unique, shared, unique_pct, ping_pct, status
+                    f.write("   {:<80} {:8d} {:8d} {:8d} {:9.1f}% {:9.1f}%  {}\n".format(
+                        source, total, unique, shared, unique_pct, ping_pct, status
                     ))
                 
                 # ========== РЕКОМЕНДАЦИИ ==========
@@ -555,7 +577,6 @@ class VlessCollector:
                 if sources_to_remove:
                     f.write(f"\n🔴 КАНДИДАТЫ НА УДАЛЕНИЕ ИЗ sources.txt:\n")
                     for source, unique, total in sources_to_remove[:5]:
-                        # ПОЛНЫЕ ССЫЛКИ БЕЗ ОБРЕЗАНИЯ
                         f.write(f"   • {source}\n")
                         f.write(f"     (уникальных: {unique}, проверок: {total})\n")
                     
@@ -573,41 +594,62 @@ class VlessCollector:
                 
                 f.write("="*70 + "\n")
     
-    def save_results(self, working: Dict[str, float]):
-        """Сохраняет out.txt и 500.txt (только ссылки)."""
-        if working:
-            with open(self.out_file, 'w', encoding='utf-8') as f:
-                for config in working.keys():
-                    f.write(config + '\n')
-            logger.info(f"✅ Сохранено {len(working)} серверов в {self.out_file}")
-            
-            # Убираем дубликаты для топ-500
-            unique_configs = {}
-            for config, speed in working.items():
+    def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
+        """Сохраняет результаты в all.txt, out.txt и 500.txt."""
+        
+        # Сохраняем all.txt (ВСЕ прошедшие ping 204)
+        if working_all:
+            # Убираем дубликаты
+            unique_all = {}
+            for config, speed in working_all.items():
                 base = re.sub(r'#.*', '', config)
-                if base not in unique_configs or speed < unique_configs[base][1]:
-                    unique_configs[base] = (config, speed)
+                if base not in unique_all or speed < unique_all[base][1]:
+                    unique_all[base] = (config, speed)
             
-            sorted_configs = sorted(unique_configs.values(), key=lambda x: x[1])
-            top_configs = sorted_configs[:500]
+            with open(self.all_file, 'w', encoding='utf-8') as f:
+                for config, speed in unique_all.values():
+                    f.write(config + '\n')
+            logger.info(f"✅ Сохранено {len(unique_all)} серверов в {self.all_file} (все протоколы)")
+        
+        # Сохраняем out.txt (быстрые)
+        if working_fast:
+            unique_fast = {}
+            for config, speed in working_fast.items():
+                base = re.sub(r'#.*', '', config)
+                if base not in unique_fast or speed < unique_fast[base][1]:
+                    unique_fast[base] = (config, speed)
+            
+            with open(self.out_file, 'w', encoding='utf-8') as f:
+                for config, speed in unique_fast.values():
+                    f.write(config + '\n')
+            logger.info(f"✅ Сохранено {len(unique_fast)} быстрых серверов в {self.out_file}")
+            
+            # Топ-500
+            sorted_fast = sorted(unique_fast.values(), key=lambda x: x[1])
+            top_configs = sorted_fast[:500]
             
             with open(self.top500_file, 'w', encoding='utf-8') as f:
-                for config, _ in top_configs:
+                for config, speed in top_configs:
                     f.write(config + '\n')
             logger.info(f"✅ Сохранено топ-500 в {self.top500_file}")
     
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v5.7")
+        print("🚀 POWER v5.8")
         print("="*70)
         print("ФАЙЛОВАЯ СТРУКТУРА:")
         print("  sources.txt  → список RAW-ссылок на подписки")
         print("  list.txt     → сырые непроверенные сервера")
-        print("  out.txt      → проверенные рабочие (только ссылки)")
+        print("  all.txt      → ВСЕ сервера, прошедшие ping 204")
+        print("  out.txt      → быстрые сервера (ping < 800ms)")
         print("  trash.txt    → битые и медленные")
-        print("  500.txt      → топ-500 лучших (только ссылки)")
-        print("  stat.txt     → статистика + анализ дубликатов (ПОЛНЫЕ ССЫЛКИ)")
+        print("  500.txt      → топ-500 лучших")
+        print("  stat.txt     → статистика + анализ дубликатов")
+        print("="*70)
+        print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTP={self.check_timeout}c")
+        print("ПРОТОКОЛЫ: ВСЕ (без фильтрации)")
+        print("ПОРТ: ЛЮБОЙ (без фильтрации)")
         print("="*70)
         
         start_total = time.time()
@@ -618,11 +660,11 @@ class VlessCollector:
             return
         
         # ШАГ 2: Проверка
-        working, source_configs = self.step2_check_all(sources_data)
+        working_all, working_fast, source_configs = self.step2_check_all(sources_data)
         
         # Сохранение результатов
-        self.save_results(working)
-        self.save_stats(working, source_configs)
+        self.save_results(working_all, working_fast)
+        self.save_stats(working_fast, source_configs)
         
         total_time = time.time() - start_total
         
@@ -632,8 +674,9 @@ class VlessCollector:
         print("="*70)
         print(f"📁 sources.txt      - {len(sources_data)} источников")
         print(f"📁 list.txt         - все сырые сервера")
-        print(f"📁 out.txt          - {len(working)} рабочих (только ссылки)")
-        print(f"📁 500.txt          - топ-500 лучших (только ссылки)")
+        print(f"📁 all.txt          - {len(working_all)} серверов (все протоколы)")
+        print(f"📁 out.txt          - {len(working_fast)} быстрых серверов")
+        print(f"📁 500.txt          - топ-500 лучших")
         print(f"📁 stat.txt         - статистика + анализ дубликатов")
         print(f"📁 trash.txt        - битые и медленные")
         print(f"⏱  Общее время: {total_time:.1f} секунд")
