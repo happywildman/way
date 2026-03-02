@@ -2,13 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v6.0
+Power v6.2
 ====================================
-- Полностью асинхронная проверка через async.py
-- Используется эталонный URL: https://www.gstatic.com/generate_204
-- Таймаут: 3 сек, одновременных проверок: 200
-- Все протоколы собираются
-- Дедупликация до проверки
+- Асинхронная проверка через asynctest.py
+- URL: https://www.gstatic.com/generate_204
+- Таймаут: 3 сек, конкурентность: 200
 ====================================
 """
 
@@ -28,8 +26,8 @@ import socket
 import ssl
 import asyncio
 
-# Импорт асинхронного модуля
-from async import ProxyChecker
+# Импорт асинхронного модуля (новое имя)
+from asynctest import AsyncChecker
 
 # Настройка логирования
 logging.basicConfig(
@@ -72,7 +70,7 @@ class VlessCollector:
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         
         # Асинхронный проверщик
-        self.checker = ProxyChecker()
+        self.checker = AsyncChecker()
         
         # Статистика по источникам
         self.source_stats = {}
@@ -203,24 +201,24 @@ class VlessCollector:
     
     def extract_proxy_string(self, config: str) -> Optional[str]:
         """
-        Извлекает из конфига строку для прокси в формате protocol://host:port
+        Извлекает из конфига строку для проверки в формате protocol://host:port
         """
         try:
             # Определяем протокол
             if config.startswith('ss://'):
-                protocol = 'socks5'  # ss обычно работает через SOCKS5
+                protocol = 'socks5'
             elif config.startswith('ssr://'):
                 protocol = 'socks5'
             elif config.startswith('trojan://'):
-                protocol = 'trojan'  # trojan использует HTTPS
+                protocol = 'trojan'
             elif config.startswith('vless://'):
-                protocol = 'vless'    # vless может быть любым
+                protocol = 'vless'
             elif config.startswith('vmess://'):
-                protocol = 'vmess'    # vmess может быть любым
+                protocol = 'vmess'
             elif config.startswith('hy2://') or config.startswith('hysteria2://'):
                 protocol = 'hysteria2'
             else:
-                protocol = 'http'     # по умолчанию
+                protocol = 'http'
             
             # Извлекаем host:port
             after_proto = config.split('://', 1)[1]
@@ -230,11 +228,10 @@ class VlessCollector:
             else:
                 host_part = after_proto.split('?')[0].split('#')[0]
             
-            # Для aiohttp нужен именно такой формат
             return f"{protocol}://{host_part}"
             
         except Exception as e:
-            logger.debug(f"Не удалось извлечь proxy строку из {config[:50]}: {e}")
+            logger.debug(f"Не удалось извлечь строку из {config[:50]}: {e}")
             return None
     
     def is_valid_config(self, config: str) -> Tuple[bool, str, int]:
@@ -271,7 +268,7 @@ class VlessCollector:
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
         """ШАГ 2: Проверяет все сервера (асинхронно)."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (асинхронно, HTTPS only)")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (асинхронно)")
         print("="*70)
         
         if not os.path.exists(self.list_file):
@@ -319,16 +316,16 @@ class VlessCollector:
         logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных серверов")
         logger.info(f"📊 Сэкономлено проверок: {len(all_configs_with_sources) - len(all_items)}")
         
-        # Подготавливаем список прокси для асинхронной проверки
-        proxy_list = [item[4] for item in all_items]  # proxy_string
+        # Подготавливаем список для асинхронной проверки
+        proxy_list = [item[4] for item in all_items]
         
         logger.info(f"🚀 Запуск асинхронной проверки ({self.checker.concurrent} потоков, таймаут={self.checker.timeout.total}с)...")
         
         # Асинхронная проверка
         start_time = time.time()
-        alive_results = self.checker.check(proxy_list)  # возвращает [(proxy_string, speed)]
+        alive_results = self.checker.check(proxy_list)
         
-        # Создаем словарь для быстрого поиска по proxy_string
+        # Создаем словарь для быстрого поиска
         alive_dict = {proxy: speed for proxy, speed in alive_results}
         
         # Формируем результаты
@@ -337,7 +334,6 @@ class VlessCollector:
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
-        # Маппим результаты обратно на конфиги
         for source_url, config, host, port, proxy_string in all_items:
             if proxy_string in alive_dict:
                 speed = alive_dict[proxy_string]
@@ -364,7 +360,7 @@ class VlessCollector:
         print("\n" + "="*70)
         print(f"✅ ПРОВЕРКА ЗАВЕРШЕНА:")
         print(f"   - Уникальных серверов проверено: {len(all_items)}")
-        print(f"   - Прошли ping (HTTPS): {len(working_all)}")
+        print(f"   - Прошли проверку: {len(working_all)}")
         print(f"   - Быстрых (<{self.speed_threshold}ms): {len(working_fast)}")
         print(f"   - Время: {elapsed:.1f} сек")
         print("="*70)
@@ -385,7 +381,7 @@ class VlessCollector:
                     passed_all += stats['passed']
                     f.write(f"📌 {url}\n   Total: {stats['total']}\n   ✅ Ping passed: {stats['passed']} ({stats['passed']/stats['total']*100:.1f}%)\n   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
             
-            f.write("="*70 + "\n📈 ОБЩАЯ СТАТИСТИКА\n" + "="*70 + f"\nВсего проверено: {total_all}\n✅ Прошли ping: {passed_all} ({passed_all/total_all*100:.1f}%)\n")
+            f.write("="*70 + "\n📈 ОБЩАЯ СТАТИСТИКА\n" + "="*70 + f"\nВсего проверено: {total_all}\n✅ Прошли проверку: {passed_all} ({passed_all/total_all*100:.1f}%)\n")
     
     def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
         """Сохраняет all.txt, out.txt, 500.txt."""
@@ -403,7 +399,6 @@ class VlessCollector:
                     f.write(c + '\n')
             logger.info(f"✅ Сохранено {len(unique)} в all.txt")
             
-            # Проверка
             if os.path.exists(self.all_file):
                 size = os.path.getsize(self.all_file)
                 logger.info(f"📁 Размер all.txt: {size} байт")
@@ -431,12 +426,12 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v6.0")
+        print("🚀 POWER v6.2")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: TCP={self.tcp_timeout}c, HTTPS={self.check_timeout}c")
-        print("ПРОТОКОЛЫ: ВСЕ (vless, vmess, trojan, ss, ssr, hy2, hysteria2)")
-        print("ПРОВЕРКА: АСИНХРОННАЯ через async.py")
+        print("ПРОТОКОЛЫ: ВСЕ")
+        print("ПРОВЕРКА: АСИНХРОННАЯ через asynctest.py")
         print(f"  URL: {self.checker.check_url}")
         print(f"  Таймаут: {self.checker.timeout.total}с")
         print(f"  Конкурентность: {self.checker.concurrent}")
