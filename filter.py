@@ -53,8 +53,8 @@ class VlessCollector:
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: int = 5,           # УВЕЛИЧЕНО
-                 tcp_timeout: int = 3,              # УВЕЛИЧЕНО
+                 check_timeout: int = 3,           # УВЕЛИЧЕНО
+                 tcp_timeout: int = 2,              # УВЕЛИЧЕНО
                  download_workers: int = 10,
                  check_workers: int = 50):
         
