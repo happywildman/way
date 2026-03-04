@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Xray Tester Module v1.2 (Ultra Diagnostic)
+Xray Tester Module v1.4
 ====================================
-- Логирование каждого шага test_many
-- Таймаут на каждый тест
-- Принудительное логирование ошибок
+- Исправлен парсер на основе python_v2ray и V2ray-Tester-Pro
+- Добавлены все критические параметры (fp, alpn, allowInsecure, flow)
+- Правильная обработка reality
+- Улучшенное логирование
 ====================================
 """
 
@@ -21,10 +22,8 @@ import zipfile
 import urllib.parse
 import base64
 from typing import List, Tuple, Optional, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-import shutil
-import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,7 @@ logger = logging.getLogger(__name__)
 class XrayTester:
     """
     Тестировщик конфигов через Xray-core.
+    Основан на лучших практиках из opensource проектов.
     """
     
     def __init__(self, 
@@ -49,10 +49,10 @@ class XrayTester:
     def _ensure_xray(self) -> str:
         """
         Проверяет наличие Xray-core, скачивает если отсутствует.
+        (адаптировано из python_v2ray)
         """
         xray_path = os.path.join(self.xray_dir, 'xray')
         
-        # Если уже есть - проверяем что работает
         if os.path.exists(xray_path):
             logger.info(f"✅ Xray-core найден: {xray_path}")
             try:
@@ -71,7 +71,6 @@ class XrayTester:
         
         logger.info("📥 Xray-core не найден. Начинаю скачивание...")
         
-        # Определяем платформу
         system = platform.system().lower()
         logger.info(f"🔍 Определена платформа: {system}")
         
@@ -96,12 +95,8 @@ class XrayTester:
             logger.info(f"📦 Размер: {total_size / 1024 / 1024:.1f} MB")
             
             with open(zip_path, 'wb') as f:
-                downloaded = 0
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0 and downloaded % (1024*1024) < 8192:
-                        logger.info(f"⬇️ Загружено: {downloaded/1024/1024:.1f} MB")
             
             logger.info("📦 Распаковываю...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -112,7 +107,7 @@ class XrayTester:
             
             os.remove(zip_path)
             
-            # Проверяем что работает
+            # Проверка
             result = subprocess.run([xray_path, '-version'], 
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
@@ -129,9 +124,11 @@ class XrayTester:
             raise
     
     def parse_config(self, config_str: str) -> Optional[Dict]:
-        """Парсит конфиг любого типа в формат Xray."""
+        """
+        Парсит конфиг любого типа в формат Xray.
+        Использует подход из python_v2ray.
+        """
         try:
-            logger.debug(f"Парсинг: {config_str[:50]}...")
             if config_str.startswith('vless://'):
                 return self._parse_vless(config_str)
             elif config_str.startswith('vmess://'):
@@ -148,16 +145,30 @@ class XrayTester:
             return None
     
     def _parse_vless(self, vless_str: str) -> Dict:
-        """Парсит vless:// ссылку."""
+        """
+        Парсит vless:// ссылку со ВСЕМИ критическими параметрами.
+        Основано на python_v2ray и V2ray-Tester-Pro.
+        """
         parsed = urllib.parse.urlparse(vless_str)
+        
+        # Извлекаем uuid@host:port
         user_info = parsed.netloc.split('@')
+        if len(user_info) != 2:
+            logger.warning(f"Неверный формат vless: {vless_str[:50]}...")
+            return None
+        
         uuid = user_info[0]
         host_port = user_info[1].split(':')
         host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 443
         
+        # Парсим ВСЕ параметры
         params = urllib.parse.parse_qs(parsed.query)
         
+        # Логируем найденные параметры для отладки
+        logger.debug(f"📋 Параметры vless: {list(params.keys())}")
+        
+        # Базовый outbound
         outbound = {
             "protocol": "vless",
             "settings": {
@@ -167,38 +178,67 @@ class XrayTester:
                     "users": [{
                         "id": uuid,
                         "encryption": params.get('encryption', ['none'])[0],
-                        "flow": params.get('flow', [''])[0]
+                        "flow": params.get('flow', [''])[0]  # xtls-rprx-vision
                     }]
                 }]
-            },
-            "streamSettings": {
-                "network": params.get('type', ['tcp'])[0],
-                "security": params.get('security', ['none'])[0]
             }
         }
         
-        if params.get('security', [''])[0] == 'reality':
-            outbound['streamSettings']['realitySettings'] = {
-                "serverName": params.get('sni', [''])[0],
-                "fingerprint": params.get('fp', ['chrome'])[0],
-                "publicKey": params.get('pbk', [''])[0],
-                "shortId": params.get('sid', [''])[0]
-            }
+        # StreamSettings
+        streamSettings = {
+            "network": params.get('type', ['tcp'])[0],
+            "security": params.get('security', ['none'])[0]
+        }
         
-        if params.get('type', [''])[0] == 'ws':
-            outbound['streamSettings']['wsSettings'] = {
+        # WebSocket параметры
+        if streamSettings["network"] == "ws":
+            streamSettings["wsSettings"] = {
                 "path": params.get('path', ['/'])[0],
                 "headers": {
                     "Host": params.get('host', [host])[0]
                 }
             }
+            logger.debug(f"🔧 WS: path={streamSettings['wsSettings']['path']}, host={streamSettings['wsSettings']['headers']['Host']}")
         
+        # TLS параметры (критически важно!)
+        if streamSettings["security"] == "tls":
+            tlsSettings = {
+                "serverName": params.get('sni', [host])[0],
+                "fingerprint": params.get('fp', ['chrome'])[0],  # из params
+                "allowInsecure": params.get('allowInsecure', ['0'])[0] == '1'
+            }
+            
+            # ALPN - обязателен для HTTP/2
+            if 'alpn' in params:
+                tlsSettings["alpn"] = params['alpn'][0].split(',')
+                logger.debug(f"🔧 ALPN из params: {tlsSettings['alpn']}")
+            else:
+                tlsSettings["alpn"] = ["h2", "http/1.1"]  # значение по умолчанию
+                logger.debug(f"🔧 ALPN по умолчанию: {tlsSettings['alpn']}")
+            
+            streamSettings["tlsSettings"] = tlsSettings
+            logger.debug(f"🔧 TLS: sni={tlsSettings['serverName']}, fp={tlsSettings['fingerprint']}")
+        
+        # Reality параметры
+        if streamSettings["security"] == "reality":
+            realitySettings = {
+                "serverName": params.get('sni', [''])[0],
+                "fingerprint": params.get('fp', ['chrome'])[0],
+                "publicKey": params.get('pbk', [''])[0],
+                "shortId": params.get('sid', [''])[0],
+                "spiderX": params.get('spx', [''])[0]  # иногда есть
+            }
+            streamSettings["realitySettings"] = realitySettings
+            logger.debug(f"🔧 Reality: sni={realitySettings['serverName']}, fp={realitySettings['fingerprint']}")
+        
+        outbound["streamSettings"] = streamSettings
         return self._create_full_config(outbound)
     
     def _parse_vmess(self, vmess_str: str) -> Optional[Dict]:
-        """Парсит vmess:// ссылку."""
+        """Парсит vmess:// ссылку (base64 encoded)."""
         b64_part = vmess_str[8:]
         
+        # Декодируем base64
         try:
             decoded = base64.b64decode(b64_part).decode('utf-8')
             config_json = json.loads(decoded)
@@ -210,39 +250,60 @@ class XrayTester:
                 decoded = base64.b64decode(b64_part).decode('utf-8')
                 config_json = json.loads(decoded)
             except:
+                logger.debug(f"Не удалось декодировать vmess")
                 return None
+        
+        # Извлекаем параметры
+        host = config_json.get('add', '')
+        port = int(config_json.get('port', 443))
+        uuid = config_json.get('id', '')
+        aid = int(config_json.get('aid', 0))
+        security = config_json.get('scy', 'auto')
+        network = config_json.get('net', 'tcp')
+        tls = config_json.get('tls', 'none')
+        path = config_json.get('path', '/')
+        host_header = config_json.get('host', '')
         
         outbound = {
             "protocol": "vmess",
             "settings": {
                 "vnext": [{
-                    "address": config_json.get('add', ''),
-                    "port": int(config_json.get('port', 443)),
+                    "address": host,
+                    "port": port,
                     "users": [{
-                        "id": config_json.get('id', ''),
-                        "alterId": int(config_json.get('aid', 0)),
-                        "security": config_json.get('scy', 'auto')
+                        "id": uuid,
+                        "alterId": aid,
+                        "security": security
                     }]
                 }]
             },
             "streamSettings": {
-                "network": config_json.get('net', 'tcp'),
-                "security": config_json.get('tls', 'none')
+                "network": network,
+                "security": tls
             }
         }
         
-        if outbound['streamSettings']['network'] == 'ws':
-            outbound['streamSettings']['wsSettings'] = {
-                "path": config_json.get('path', '/'),
+        # WebSocket параметры
+        if network == "ws":
+            outbound["streamSettings"]["wsSettings"] = {
+                "path": path,
                 "headers": {
-                    "Host": config_json.get('host', '')
+                    "Host": host_header if host_header else host
                 }
+            }
+        
+        # TLS параметры
+        if tls == "tls":
+            outbound["streamSettings"]["tlsSettings"] = {
+                "serverName": host_header if host_header else host,
+                "allowInsecure": True,
+                "fingerprint": "chrome"
             }
         
         return self._create_full_config(outbound)
     
     def _parse_trojan(self, trojan_str: str) -> Optional[Dict]:
-        """Парсит trojan:// ссылку."""
+        """Парсит trojan:// ссылку со всеми параметрами."""
         parsed = urllib.parse.urlparse(trojan_str)
         
         if '@' not in parsed.netloc:
@@ -253,6 +314,7 @@ class XrayTester:
         host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 443
         
+        # Парсим параметры
         params = urllib.parse.parse_qs(parsed.query)
         
         outbound = {
@@ -270,13 +332,26 @@ class XrayTester:
             }
         }
         
-        if outbound['streamSettings']['network'] == 'ws':
-            outbound['streamSettings']['wsSettings'] = {
+        # WebSocket параметры
+        if outbound["streamSettings"]["network"] == "ws":
+            outbound["streamSettings"]["wsSettings"] = {
                 "path": params.get('path', ['/'])[0],
                 "headers": {
                     "Host": params.get('host', [host])[0]
                 }
             }
+        
+        # TLS параметры
+        tlsSettings = {
+            "serverName": params.get('sni', [host])[0],
+            "fingerprint": params.get('fp', ['chrome'])[0],
+            "allowInsecure": params.get('allowInsecure', ['0'])[0] == '1'
+        }
+        
+        if 'alpn' in params:
+            tlsSettings["alpn"] = params['alpn'][0].split(',')
+        
+        outbound["streamSettings"]["tlsSettings"] = tlsSettings
         
         return self._create_full_config(outbound)
     
@@ -331,7 +406,7 @@ class XrayTester:
             return None
     
     def _create_full_config(self, outbound: Dict) -> Dict:
-        """Создает полный конфиг Xray."""
+        """Создает полный конфиг Xray с inbound для SOCKS5."""
         return {
             "log": {
                 "loglevel": "error"
@@ -355,47 +430,38 @@ class XrayTester:
         }
     
     def test_one(self, config_str: str, index: int, total: int) -> Tuple[Optional[str], Optional[float]]:
-        """
-        Тестирует один конфиг с детальным логированием.
-        """
+        """Тестирует один конфиг с детальным логированием."""
         temp_config = None
         process = None
         
-        logger.info(f"🔍 [{index}/{total}] Тестирую конфиг: {config_str[:50]}...")
+        logger.info(f"🔍 [{index}/{total}] Тестирую: {config_str[:50]}...")
         
         try:
             # Парсим конфиг
             config_data = self.parse_config(config_str)
             if not config_data:
-                logger.warning(f"❌ [{index}/{total}] Не удалось распарсить конфиг")
+                logger.warning(f"❌ [{index}/{total}] Не удалось распарсить")
                 return None, None
             
             # Сохраняем во временный файл
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 json.dump(config_data, f, indent=2)
                 temp_config = f.name
-                logger.debug(f"📝 [{index}/{total}] Временный конфиг: {temp_config}")
             
             # Запускаем Xray
-            logger.debug(f"🚀 [{index}/{total}] Запуск Xray...")
             process = subprocess.Popen(
                 [self.xray_path, '-config', temp_config],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
             
-            # Даем время на запуск
-            time.sleep(1.5)
+            # Даем время на запуск (2 секунды как в V2ray-Tester-Pro)
+            time.sleep(2)
             
-            # Проверяем что процесс жив
             if process.poll() is not None:
-                stdout, stderr = process.communicate()
-                logger.error(f"❌ [{index}/{total}] Xray умер сразу. STDERR: {stderr}")
                 return None, None
             
             # Тестируем через SOCKS5
-            logger.debug(f"🔌 [{index}/{total}] Отправка запроса через SOCKS5...")
             start = time.time()
             
             proxies = {
@@ -412,26 +478,25 @@ class XrayTester:
                 
                 if response.status_code == 204:
                     elapsed = (time.time() - start) * 1000
-                    logger.info(f"✅ [{index}/{total}] Успех! Задержка: {elapsed:.2f}ms")
+                    logger.info(f"✅ [{index}/{total}] Успех! {elapsed:.2f}ms")
                     return config_str, round(elapsed, 2)
                 else:
-                    logger.warning(f"❌ [{index}/{total}] Не 204 ответ: {response.status_code}")
+                    logger.warning(f"❌ [{index}/{total}] Не 204: {response.status_code}")
                     return None, None
                     
             except requests.Timeout:
-                logger.warning(f"⏱️ [{index}/{total}] Таймаут при запросе")
+                logger.warning(f"⏱️ [{index}/{total}] Таймаут")
                 return None, None
             except requests.ConnectionError as e:
                 logger.warning(f"🔌 [{index}/{total}] Ошибка соединения: {e}")
                 return None, None
                 
         except Exception as e:
-            logger.error(f"💥 [{index}/{total}] Неожиданная ошибка: {e}")
+            logger.error(f"💥 [{index}/{total}] Ошибка: {e}")
             return None, None
             
         finally:
             if process:
-                logger.debug(f"🛑 [{index}/{total}] Остановка Xray...")
                 process.terminate()
                 try:
                     process.wait(timeout=2)
@@ -445,19 +510,14 @@ class XrayTester:
                     pass
     
     def test_many(self, configs: List[str]) -> List[Tuple[str, float]]:
-        """
-        Тестирует множество конфигов параллельно с детальным логированием.
-        """
+        """Тестирует множество конфигов параллельно."""
         if not configs:
-            logger.warning("⚠️ Нет конфигов для тестирования")
             return []
         
-        logger.info(f"🚀 Запуск Xray тестирования: {len(configs)} конфигов, {self.max_workers} процессов")
-        logger.info(f"⚙️ Параметры: таймаут={self.timeout}с, порт SOCKS5={self.socks_port}")
+        logger.info(f"🚀 Запуск Xray: {len(configs)} конфигов, {self.max_workers} процессов")
         
         results = []
         total = len(configs)
-        completed = 0
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_config = {
@@ -466,16 +526,12 @@ class XrayTester:
             }
             
             for future in as_completed(future_to_config):
-                completed += 1
                 config, speed = future.result()
                 if config:
                     results.append((config, speed))
-                
-                if completed % 10 == 0:
-                    logger.info(f"📊 Прогресс: {completed}/{total} завершено, найдено {len(results)} рабочих")
         
         results.sort(key=lambda x: x[1])
-        logger.info(f"✅ Тестирование завершено: {len(results)} рабочих из {total}")
+        logger.info(f"✅ Готово: {len(results)} рабочих из {total}")
         
         return results
 
@@ -484,13 +540,10 @@ class XrayTester:
 if __name__ == "__main__":
     import sys
     
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    logging.basicConfig(level=logging.INFO)
     
     print("="*60)
-    print("XRAY TESTER MODULE v1.2 (Ultra Diagnostic)")
+    print("XRAY TESTER MODULE v1.4")
     print("="*60)
     
     if len(sys.argv) > 1:
@@ -498,12 +551,12 @@ if __name__ == "__main__":
         tester = XrayTester(max_workers=1)
         result, speed = tester.test_one(config, 1, 1)
         if result:
-            print(f"\n✅ РАБОТАЕТ! Задержка: {speed}ms")
+            print(f"\n✅ РАБОТАЕТ! {speed}ms")
         else:
             print("\n❌ НЕ РАБОТАЕТ")
         sys.exit(0)
     
-    print("Введите конфиги (по одному в строке, пустая строка для завершения):")
+    print("Введите конфиги (по одному в строке):")
     configs = []
     while True:
         line = sys.stdin.readline().strip()
@@ -512,17 +565,15 @@ if __name__ == "__main__":
         configs.append(line)
     
     if not configs:
-        print("❌ Нет конфигов для проверки")
+        print("❌ Нет конфигов")
         sys.exit(0)
-    
-    print(f"\n🔍 Тестирую {len(configs)} конфигов через Xray...")
     
     tester = XrayTester(max_workers=3)
     results = tester.test_many(configs)
     
     print(f"\n✅ Рабочих: {len(results)} из {len(configs)}")
     if results:
-        print("\n📊 Топ-10 самых быстрых:")
+        print("\n📊 Топ-10:")
         for config, speed in results[:10]:
             short = config[:60] + "..." if len(config) > 60 else config
             print(f"   {short} | {speed}ms")
