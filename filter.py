@@ -46,16 +46,16 @@ class VlessCollector:
     def __init__(self,
                  sources_file: str = 'sources.txt',
                  list_file: str = 'list.txt',
-                 all_file: 'all.txt',
+                 all_file: str = 'all.txt',           # ← ИСПРАВЛЕНО
                  out_file: str = 'out.txt',
                  stat_file: str = 'stat.txt',
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
                  check_timeout: float = 5.0,
-                 quick_timeout: float = 1.5,        # быстрый тест
+                 quick_timeout: float = 1.5,
                  download_workers: int = 10,
-                 check_workers: int = 10):           # параллельность Xray
+                 check_workers: int = 10):
         
         self.sources_file = sources_file
         self.list_file = list_file
@@ -76,7 +76,7 @@ class VlessCollector:
             timeout=self.check_timeout,
             max_workers=self.check_workers
         )
-        self.xray_path = self.tester.xray_path  # используем тот же бинарник
+        self.xray_path = self.tester.xray_path
         
         # Статистика по источникам
         self.source_stats = {}
@@ -210,7 +210,6 @@ class VlessCollector:
         Быстрый тест через Xray - проверяет, запускается ли процесс.
         Если процесс не умирает сразу - сервер отвечает на рукопожатие.
         """
-        # Используем парсер из XrayTester
         config_data = self.tester.parse_config(config_str)
         if not config_data:
             return False
@@ -219,22 +218,18 @@ class VlessCollector:
         process = None
         
         try:
-            # Сохраняем во временный файл
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 json.dump(config_data, f, indent=2)
                 temp_config = f.name
             
-            # Запускаем Xray
             process = subprocess.Popen(
                 [self.xray_path, '-config', temp_config],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
             
-            # Даем время на запуск
             time.sleep(self.quick_timeout)
             
-            # Если процесс жив - тест пройден
             return process.poll() is None
             
         except Exception as e:
@@ -295,7 +290,6 @@ class VlessCollector:
         if not os.path.exists(self.list_file):
             return {}, {}, {}
         
-        # Читаем list.txt
         source_configs = defaultdict(list)
         current_source = None
         
@@ -307,13 +301,11 @@ class VlessCollector:
                 elif line and not line.startswith('#') and current_source:
                     source_configs[current_source].append(line)
         
-        # Собираем все конфиги с источниками
         all_configs_with_sources = []
         source_totals = defaultdict(int)
         
         for source_url, configs in source_configs.items():
             for config in configs:
-                # Оставляем только vless (по вашему предложению)
                 if config.startswith('vless://') and self.is_valid_config(config)[0]:
                     all_configs_with_sources.append((source_url, config))
                     source_totals[source_url] += 1
@@ -323,7 +315,6 @@ class VlessCollector:
         if not all_configs_with_sources:
             return {}, {}, source_configs
         
-        # Дедупликация
         unique_configs_map = {}
         for source_url, config in all_configs_with_sources:
             key = self.get_config_key(config)
@@ -358,7 +349,6 @@ class VlessCollector:
             logger.warning("⚠️ Нет живых серверов после быстрого теста")
             return {}, {}, source_configs
         
-        # === УРОВЕНЬ 2: ПОЛНЫЙ XRAY ТЕСТ ===
         config_list = [config for source_url, config in quick_alive]
         
         logger.info(f"🚀 Запуск полного Xray теста ({self.tester.max_workers} процессов, таймаут={self.tester.timeout}c)...")
@@ -366,10 +356,8 @@ class VlessCollector:
         start_time = time.time()
         alive_results = self.tester.test_many(config_list)
         
-        # Создаем словарь для быстрого поиска
         alive_dict = {config: speed for config, speed in alive_results}
         
-        # Формируем результаты
         working_all = {}
         working_fast = {}
         source_passed = defaultdict(int)
@@ -386,7 +374,6 @@ class VlessCollector:
         
         elapsed = time.time() - start_time
         
-        # Статистика
         for source_url in source_totals:
             total = source_totals[source_url]
             passed = source_passed[source_url]
@@ -428,7 +415,6 @@ class VlessCollector:
     def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
         """Сохраняет all.txt, out.txt, 500.txt."""
         
-        # all.txt
         if working_all:
             unique = {}
             for c, s in working_all.items():
@@ -441,7 +427,6 @@ class VlessCollector:
                     f.write(c + '\n')
             logger.info(f"✅ Сохранено {len(unique)} vless серверов в all.txt")
         
-        # out.txt
         if working_fast:
             unique_fast = {}
             for c, s in working_fast.items():
@@ -454,7 +439,6 @@ class VlessCollector:
                     f.write(c + '\n')
             logger.info(f"✅ Сохранено {len(unique_fast)} быстрых vless серверов в out.txt")
             
-            # 500.txt
             top = sorted(unique_fast.values(), key=lambda x: x[1])[:500]
             with open(self.top500_file, 'w', encoding='utf-8') as f:
                 for c, _ in top:
