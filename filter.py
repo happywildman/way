@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v7.9
+Power v7.10
 ====================================
-- 50 потоков для быстрого теста
-- Быстрый тест 1 секунда
-- Только vless
-- Двухуровневая проверка: быстрый Xray → полный Xray
+- 50 потоков
+- Быстрый тест 1с
+- Полный тест 2с (как на смартфоне)
 ====================================
 """
 
@@ -53,7 +52,7 @@ class VlessCollector:
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: float = 5.0,
+                 check_timeout: float = 2.0,        # уменьшено до 2 секунд
                  quick_timeout: float = 1.0,
                  download_workers: int = 10,
                  check_workers: int = 50):
@@ -230,7 +229,7 @@ class VlessCollector:
                 stderr=subprocess.DEVNULL
             )
             
-            time.sleep(self.quick_timeout)  # 1 секунда
+            time.sleep(self.quick_timeout)
             
             is_alive = process.poll() is None
             if is_alive:
@@ -329,7 +328,7 @@ class VlessCollector:
         all_items = list(unique_configs_map.values())
         logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных vless серверов")
         
-        # === УРОВЕНЬ 1: БЫСТРЫЙ XRAY ТЕСТ (50 потоков, 1 секунда) ===
+        # === УРОВЕНЬ 1: БЫСТРЫЙ XRAY ТЕСТ ===
         logger.info(f"⚡ Запуск быстрого Xray теста ({self.check_workers} потоков, таймаут={self.quick_timeout}c)...")
         
         quick_alive = []
@@ -454,7 +453,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v7.9")
+        print("🚀 POWER v7.10")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: быстрый Xray={self.quick_timeout}c | полный Xray={self.check_timeout}c")
