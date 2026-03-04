@@ -2,13 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v8.0
+Power v8.1
 ====================================
-- 50 потоков
-- Быстрый тест 1с
-- Полный тест 2с
-- GeoIP разделение (runetfreedom)
-- ru.txt для российских серверов
+- Исправлена статистика дубликатов
+- Анализ теперь использует уникальные конфиги
 ====================================
 """
 
@@ -51,7 +48,7 @@ class VlessCollector:
                  list_file: str = 'list.txt',
                  all_file: str = 'all.txt',
                  out_file: str = 'out.txt',
-                 ru_file: str = 'ru.txt',           # новый файл
+                 ru_file: str = 'ru.txt',
                  stat_file: str = 'stat.txt',
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
@@ -65,7 +62,7 @@ class VlessCollector:
         self.list_file = list_file
         self.all_file = all_file
         self.out_file = out_file
-        self.ru_file = ru_file                      # новый файл
+        self.ru_file = ru_file
         self.stat_file = stat_file
         self.top500_file = top500_file
         self.speed_threshold = speed_threshold
@@ -312,14 +309,14 @@ class VlessCollector:
         """Исправляет &; на &, остальное без изменений."""
         return config.replace('&;', '&')
     
-    def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
+    def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]], Dict]:
         """ШАГ 2: Двухуровневая Xray проверка (быстрый + полный)."""
         print("\n" + "="*70)
         print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (быстрый Xray → полный Xray)")
         print("="*70)
         
         if not os.path.exists(self.list_file):
-            return {}, {}, {}
+            return {}, {}, {}, {}
         
         source_configs = defaultdict(list)
         current_source = None
@@ -344,8 +341,9 @@ class VlessCollector:
         logger.info(f"🌍 Найдено vless серверов (с дубликатами): {len(all_configs_with_sources)}")
         
         if not all_configs_with_sources:
-            return {}, {}, source_configs
+            return {}, {}, {}, {}
         
+        # === ДЕДУПЛИКАЦИЯ ===
         unique_configs_map = {}
         for source_url, config in all_configs_with_sources:
             key = self.get_config_key(config)
@@ -379,7 +377,7 @@ class VlessCollector:
         
         if not quick_alive:
             logger.warning("⚠️ Нет живых серверов после быстрого теста")
-            return {}, {}, source_configs
+            return {}, {}, source_configs, unique_configs_map
         
         config_list = [config for source_url, config in quick_alive]
         
@@ -426,9 +424,9 @@ class VlessCollector:
         print(f"   - Время: {elapsed:.1f} сек")
         print("="*70)
         
-        return working_all, working_fast, source_configs
+        return working_all, working_fast, source_configs, unique_configs_map
     
-    def save_stats(self, working_fast: Dict[str, float], source_configs: Dict[str, List[str]]):
+    def save_stats(self, working_fast: Dict[str, float], source_configs: Dict[str, List[str]], unique_configs_map: Dict):
         """Сохраняет статистику с полным анализом."""
         with open(self.stat_file, 'w', encoding='utf-8') as f:
             # ========== ОСНОВНАЯ СТАТИСТИКА ==========
@@ -470,21 +468,19 @@ class VlessCollector:
             f.write(f"✅ Прошли полный тест: {passed_all} ({total_percent:.1f}%)\n\n")
             
             # ========== АНАЛИЗ ДУБЛИКАТОВ ==========
-            if source_configs:
+            if unique_configs_map:
                 f.write("\n" + "="*70 + "\n")
                 f.write("🔍 АНАЛИЗ ДУБЛИКАТОВ И УНИКАЛЬНОСТИ ИСТОЧНИКОВ\n")
                 f.write("="*70 + "\n\n")
                 
-                # Собираем все конфиги с привязкой к источникам
+                # Собираем все конфиги с привязкой к источникам (из unique_configs_map)
                 config_sources = defaultdict(set)
                 source_totals = defaultdict(int)
                 
-                for source_url, configs in source_configs.items():
-                    for config in configs:
-                        if config.startswith('vless://'):
-                            base_config = re.sub(r'#.*', '', config)
-                            config_sources[base_config].add(source_url)
-                            source_totals[source_url] += 1
+                for key, (source_url, config) in unique_configs_map.items():
+                    base_config = re.sub(r'#.*', '', config)
+                    config_sources[base_config].add(source_url)
+                    source_totals[source_url] += 1
                 
                 # Считаем уникальные и дублирующиеся для каждого источника
                 source_unique = defaultdict(int)
@@ -506,7 +502,7 @@ class VlessCollector:
                 if unique_total > 0:
                     f.write(f"📊 Коэффициент дублирования: {total_with_dupes/unique_total:.2f}x\n\n")
                 
-                # Таблица источников
+                # Таблица источников (только те, у которых есть уникальные)
                 f.write("📌 ДЕТАЛЬНАЯ СТАТИСТИКА ПО ИСТОЧНИКАМ:\n")
                 f.write("-" * 120 + "\n")
                 f.write("   {:<80} {:>8} {:>8} {:>8} {:>10} {:>10} {:>12}\n".format(
@@ -593,12 +589,7 @@ class VlessCollector:
     def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
         """
         Сохраняет результаты с GeoIP разделением.
-        - all.txt: все сервера
-        - ru.txt: только российские
-        - out.txt: быстрые зарубежные
-        - 500.txt: топ-500 из out.txt
         """
-        
         # all.txt (все сервера)
         if working_all:
             unique_all = {}
@@ -646,7 +637,6 @@ class VlessCollector:
                 logger.info(f"✅ Сохранено {len(foreign_fast)} быстрых зарубежных серверов в {self.out_file}")
                 
                 # 500.txt (топ из out.txt)
-                # Собираем конфиги со скоростями
                 foreign_fast_with_speed = []
                 for config in foreign_fast:
                     key = self.get_config_key(config)
@@ -664,7 +654,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v8.0")
+        print("🚀 POWER v8.1")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, ru.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: быстрый Xray={self.quick_timeout}c | полный Xray={self.check_timeout}c")
@@ -679,9 +669,9 @@ class VlessCollector:
         start = time.time()
         sources = self.step1_collect_all()
         if sources:
-            all_cfg, fast_cfg, src_cfg = self.step2_check_all(sources)
+            all_cfg, fast_cfg, src_cfg, unique_map = self.step2_check_all(sources)
             self.save_results(all_cfg, fast_cfg)
-            self.save_stats(fast_cfg, src_cfg)
+            self.save_stats(fast_cfg, src_cfg, unique_map)
         
         # Закрываем GeoIP базу
         self.geoip.close()
