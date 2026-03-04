@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v8.1
+Power v8.2
 ====================================
-- Исправлена статистика дубликатов
-- Анализ теперь использует уникальные конфиги
+- Исправлены критерии статусов источников
+- Статус теперь только по проценту рабочих (без учета уникальности)
 ====================================
 """
 
@@ -530,13 +530,14 @@ class VlessCollector:
                     ping_total = self.source_stats.get(source, {}).get('total', 0)
                     ping_pct = (ping_passed / ping_total * 100) if ping_total > 0 else 0
                     
-                    # Определяем статус источника
-                    if unique_pct >= 70 and ping_pct >= 50:
+                    # ===== ИСПРАВЛЕННЫЕ КРИТЕРИИ СТАТУСОВ =====
+                    # Статус определяется ТОЛЬКО по проценту рабочих серверов
+                    if ping_pct >= 50:
                         status = "🟢 ОТЛИЧНЫЙ"
-                    elif unique_pct >= 30 and ping_pct >= 30:
+                    elif ping_pct >= 20:
                         status = "🟡 СРЕДНИЙ"
-                    elif unique_pct >= 15 and ping_pct >= 10:
-                        status = "🟠 СОМНИТЕЛЬНЫЙ"
+                    elif ping_pct >= 5:
+                        status = "🟠 НИЗКИЙ"
                     else:
                         status = "🔴 МУСОР"
                     
@@ -654,7 +655,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v8.1")
+        print("🚀 POWER v8.2")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, ru.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: быстрый Xray={self.quick_timeout}c | полный Xray={self.check_timeout}c")
