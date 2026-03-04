@@ -380,4 +380,40 @@ class VlessCollector:
             
             with open(self.out_file, 'w', encoding='utf-8') as f:
                 for c, _ in unique_fast.values():
-                    f.write(c + '\
+                    f.write(c + '\n')
+            logger.info(f"✅ Сохранено {len(unique_fast)} в out.txt")
+            
+            # 500.txt
+            top = sorted(unique_fast.values(), key=lambda x: x[1])[:500]
+            with open(self.top500_file, 'w', encoding='utf-8') as f:
+                for c, _ in top:
+                    f.write(c + '\n')
+            logger.info(f"✅ Сохранено топ-{len(top)} в 500.txt")
+    
+    def run(self):
+        """Основной процесс."""
+        print("="*70)
+        print("🚀 POWER v7.2")
+        print("="*70)
+        print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
+        print(f"ТАЙМАУТ: {self.check_timeout}с")
+        print("ПРОТОКОЛЫ: ВСЕ")
+        print("ПРОВЕРКА: Xray-core (реальная работа через прокси)")
+        print(f"ПРОЦЕССОВ: {self.tester.max_workers} (Xray тяжелый)")
+        print("ДЕДУПЛИКАЦИЯ: ДО ПРОВЕРКИ")
+        print("GeoIP: УДАЛЕН | trash: УДАЛЕН")
+        print("="*70)
+        
+        start = time.time()
+        sources = self.step1_collect_all()
+        if sources:
+            all_cfg, fast_cfg, src_cfg = self.step2_check_all(sources)
+            self.save_results(all_cfg, fast_cfg)
+            self.save_stats(fast_cfg, src_cfg)
+        print(f"\n🎯 ГОТОВО! Время: {time.time()-start:.1f} сек")
+        print("="*70)
+
+
+if __name__ == "__main__":
+    collector = VlessCollector()
+    collector.run()
