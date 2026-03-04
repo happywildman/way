@@ -2,12 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Xray Tester Module v1.4
+Xray Tester Module v1.6
 ====================================
-- Исправлен парсер на основе python_v2ray и V2ray-Tester-Pro
-- Добавлены все критические параметры (fp, alpn, allowInsecure, flow)
-- Правильная обработка reality
-- Улучшенное логирование
+- Логирование конфигов при ошибках
+- Видно, какие именно сервера отваливаются
 ====================================
 """
 
@@ -31,7 +29,6 @@ logger = logging.getLogger(__name__)
 class XrayTester:
     """
     Тестировщик конфигов через Xray-core.
-    Основан на лучших практиках из opensource проектов.
     """
     
     def __init__(self, 
@@ -47,10 +44,7 @@ class XrayTester:
         self.xray_path = self._ensure_xray()
         
     def _ensure_xray(self) -> str:
-        """
-        Проверяет наличие Xray-core, скачивает если отсутствует.
-        (адаптировано из python_v2ray)
-        """
+        """Проверяет наличие Xray-core, скачивает если отсутствует."""
         xray_path = os.path.join(self.xray_dir, 'xray')
         
         if os.path.exists(xray_path):
@@ -72,8 +66,6 @@ class XrayTester:
         logger.info("📥 Xray-core не найден. Начинаю скачивание...")
         
         system = platform.system().lower()
-        logger.info(f"🔍 Определена платформа: {system}")
-        
         if 'windows' in system:
             system = 'windows'
         elif 'darwin' in system:
@@ -86,19 +78,13 @@ class XrayTester:
         
         try:
             os.makedirs(self.xray_dir, exist_ok=True)
-            logger.info(f"⬇️ Скачиваю Xray с {url}...")
-            
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            
-            total_size = int(response.headers.get('content-length', 0))
-            logger.info(f"📦 Размер: {total_size / 1024 / 1024:.1f} MB")
             
             with open(zip_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             
-            logger.info("📦 Распаковываю...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(self.xray_dir)
             
@@ -107,7 +93,6 @@ class XrayTester:
             
             os.remove(zip_path)
             
-            # Проверка
             result = subprocess.run([xray_path, '-version'], 
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
@@ -124,10 +109,7 @@ class XrayTester:
             raise
     
     def parse_config(self, config_str: str) -> Optional[Dict]:
-        """
-        Парсит конфиг любого типа в формат Xray.
-        Использует подход из python_v2ray.
-        """
+        """Парсит конфиг любого типа в формат Xray."""
         try:
             if config_str.startswith('vless://'):
                 return self._parse_vless(config_str)
@@ -138,23 +120,17 @@ class XrayTester:
             elif config_str.startswith('ss://'):
                 return self._parse_shadowsocks(config_str)
             else:
-                logger.debug(f"Неподдерживаемый протокол")
                 return None
         except Exception as e:
             logger.debug(f"Ошибка парсинга: {e}")
             return None
     
     def _parse_vless(self, vless_str: str) -> Dict:
-        """
-        Парсит vless:// ссылку со ВСЕМИ критическими параметрами.
-        Основано на python_v2ray и V2ray-Tester-Pro.
-        """
+        """Парсит vless:// ссылку со всеми параметрами."""
         parsed = urllib.parse.urlparse(vless_str)
         
-        # Извлекаем uuid@host:port
         user_info = parsed.netloc.split('@')
         if len(user_info) != 2:
-            logger.warning(f"Неверный формат vless: {vless_str[:50]}...")
             return None
         
         uuid = user_info[0]
@@ -162,13 +138,8 @@ class XrayTester:
         host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 443
         
-        # Парсим ВСЕ параметры
         params = urllib.parse.parse_qs(parsed.query)
         
-        # Логируем найденные параметры для отладки
-        logger.debug(f"📋 Параметры vless: {list(params.keys())}")
-        
-        # Базовый outbound
         outbound = {
             "protocol": "vless",
             "settings": {
@@ -178,19 +149,17 @@ class XrayTester:
                     "users": [{
                         "id": uuid,
                         "encryption": params.get('encryption', ['none'])[0],
-                        "flow": params.get('flow', [''])[0]  # xtls-rprx-vision
+                        "flow": params.get('flow', [''])[0]
                     }]
                 }]
             }
         }
         
-        # StreamSettings
         streamSettings = {
             "network": params.get('type', ['tcp'])[0],
             "security": params.get('security', ['none'])[0]
         }
         
-        # WebSocket параметры
         if streamSettings["network"] == "ws":
             streamSettings["wsSettings"] = {
                 "path": params.get('path', ['/'])[0],
@@ -198,47 +167,36 @@ class XrayTester:
                     "Host": params.get('host', [host])[0]
                 }
             }
-            logger.debug(f"🔧 WS: path={streamSettings['wsSettings']['path']}, host={streamSettings['wsSettings']['headers']['Host']}")
         
-        # TLS параметры (критически важно!)
         if streamSettings["security"] == "tls":
             tlsSettings = {
                 "serverName": params.get('sni', [host])[0],
-                "fingerprint": params.get('fp', ['chrome'])[0],  # из params
+                "fingerprint": params.get('fp', ['chrome'])[0],
                 "allowInsecure": params.get('allowInsecure', ['0'])[0] == '1'
             }
-            
-            # ALPN - обязателен для HTTP/2
             if 'alpn' in params:
                 tlsSettings["alpn"] = params['alpn'][0].split(',')
-                logger.debug(f"🔧 ALPN из params: {tlsSettings['alpn']}")
             else:
-                tlsSettings["alpn"] = ["h2", "http/1.1"]  # значение по умолчанию
-                logger.debug(f"🔧 ALPN по умолчанию: {tlsSettings['alpn']}")
-            
+                tlsSettings["alpn"] = ["h2", "http/1.1"]
             streamSettings["tlsSettings"] = tlsSettings
-            logger.debug(f"🔧 TLS: sni={tlsSettings['serverName']}, fp={tlsSettings['fingerprint']}")
         
-        # Reality параметры
         if streamSettings["security"] == "reality":
             realitySettings = {
                 "serverName": params.get('sni', [''])[0],
                 "fingerprint": params.get('fp', ['chrome'])[0],
                 "publicKey": params.get('pbk', [''])[0],
                 "shortId": params.get('sid', [''])[0],
-                "spiderX": params.get('spx', [''])[0]  # иногда есть
+                "spiderX": params.get('spx', [''])[0]
             }
             streamSettings["realitySettings"] = realitySettings
-            logger.debug(f"🔧 Reality: sni={realitySettings['serverName']}, fp={realitySettings['fingerprint']}")
         
         outbound["streamSettings"] = streamSettings
         return self._create_full_config(outbound)
     
     def _parse_vmess(self, vmess_str: str) -> Optional[Dict]:
-        """Парсит vmess:// ссылку (base64 encoded)."""
+        """Парсит vmess:// ссылку."""
         b64_part = vmess_str[8:]
         
-        # Декодируем base64
         try:
             decoded = base64.b64decode(b64_part).decode('utf-8')
             config_json = json.loads(decoded)
@@ -250,52 +208,38 @@ class XrayTester:
                 decoded = base64.b64decode(b64_part).decode('utf-8')
                 config_json = json.loads(decoded)
             except:
-                logger.debug(f"Не удалось декодировать vmess")
                 return None
-        
-        # Извлекаем параметры
-        host = config_json.get('add', '')
-        port = int(config_json.get('port', 443))
-        uuid = config_json.get('id', '')
-        aid = int(config_json.get('aid', 0))
-        security = config_json.get('scy', 'auto')
-        network = config_json.get('net', 'tcp')
-        tls = config_json.get('tls', 'none')
-        path = config_json.get('path', '/')
-        host_header = config_json.get('host', '')
         
         outbound = {
             "protocol": "vmess",
             "settings": {
                 "vnext": [{
-                    "address": host,
-                    "port": port,
+                    "address": config_json.get('add', ''),
+                    "port": int(config_json.get('port', 443)),
                     "users": [{
-                        "id": uuid,
-                        "alterId": aid,
-                        "security": security
+                        "id": config_json.get('id', ''),
+                        "alterId": int(config_json.get('aid', 0)),
+                        "security": config_json.get('scy', 'auto')
                     }]
                 }]
             },
             "streamSettings": {
-                "network": network,
-                "security": tls
+                "network": config_json.get('net', 'tcp'),
+                "security": config_json.get('tls', 'none')
             }
         }
         
-        # WebSocket параметры
-        if network == "ws":
+        if outbound["streamSettings"]["network"] == "ws":
             outbound["streamSettings"]["wsSettings"] = {
-                "path": path,
+                "path": config_json.get('path', '/'),
                 "headers": {
-                    "Host": host_header if host_header else host
+                    "Host": config_json.get('host', '')
                 }
             }
         
-        # TLS параметры
-        if tls == "tls":
+        if outbound["streamSettings"]["security"] == "tls":
             outbound["streamSettings"]["tlsSettings"] = {
-                "serverName": host_header if host_header else host,
+                "serverName": config_json.get('host', ''),
                 "allowInsecure": True,
                 "fingerprint": "chrome"
             }
@@ -303,7 +247,7 @@ class XrayTester:
         return self._create_full_config(outbound)
     
     def _parse_trojan(self, trojan_str: str) -> Optional[Dict]:
-        """Парсит trojan:// ссылку со всеми параметрами."""
+        """Парсит trojan:// ссылку."""
         parsed = urllib.parse.urlparse(trojan_str)
         
         if '@' not in parsed.netloc:
@@ -314,7 +258,6 @@ class XrayTester:
         host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 443
         
-        # Парсим параметры
         params = urllib.parse.parse_qs(parsed.query)
         
         outbound = {
@@ -332,7 +275,6 @@ class XrayTester:
             }
         }
         
-        # WebSocket параметры
         if outbound["streamSettings"]["network"] == "ws":
             outbound["streamSettings"]["wsSettings"] = {
                 "path": params.get('path', ['/'])[0],
@@ -341,7 +283,6 @@ class XrayTester:
                 }
             }
         
-        # TLS параметры
         tlsSettings = {
             "serverName": params.get('sni', [host])[0],
             "fingerprint": params.get('fp', ['chrome'])[0],
@@ -430,46 +371,48 @@ class XrayTester:
         }
     
     def test_one(self, config_str: str, index: int, total: int) -> Tuple[Optional[str], Optional[float]]:
-        """Тестирует один конфиг с детальным логированием."""
+        """Тестирует один конфиг с логированием ошибок и самого конфига."""
         temp_config = None
         process = None
         
         logger.info(f"🔍 [{index}/{total}] Тестирую: {config_str[:50]}...")
         
         try:
-            # Парсим конфиг
             config_data = self.parse_config(config_str)
             if not config_data:
-                logger.warning(f"❌ [{index}/{total}] Не удалось распарсить")
+                logger.warning(f"❌ [{index}/{total}] Не удалось распарсить конфиг")
                 return None, None
             
-            # Сохраняем во временный файл
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 json.dump(config_data, f, indent=2)
                 temp_config = f.name
             
-            # Запускаем Xray
+            # Запускаем Xray с захватом stderr
             process = subprocess.Popen(
                 [self.xray_path, '-config', temp_config],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
             
-            # Даем время на запуск (2 секунды как в V2ray-Tester-Pro)
+            # Даем время на запуск
             time.sleep(2)
             
+            # Проверяем, жив ли процесс
             if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                logger.error(f"❌ [{index}/{total}] Xray error для конфига {config_str[:100]}...")
+                logger.error(f"❌ [{index}/{total}] Ошибка Xray: {stderr[:200]}")
                 return None, None
             
             # Тестируем через SOCKS5
-            start = time.time()
-            
             proxies = {
                 'http': f'socks5://127.0.0.1:{self.socks_port}',
                 'https': f'socks5://127.0.0.1:{self.socks_port}'
             }
             
             try:
+                start = time.time()
                 response = requests.get(
                     'https://www.gstatic.com/generate_204',
                     proxies=proxies,
@@ -481,18 +424,20 @@ class XrayTester:
                     logger.info(f"✅ [{index}/{total}] Успех! {elapsed:.2f}ms")
                     return config_str, round(elapsed, 2)
                 else:
-                    logger.warning(f"❌ [{index}/{total}] Не 204: {response.status_code}")
+                    logger.warning(f"❌ [{index}/{total}] Не 204: {response.status_code} для конфига {config_str[:100]}...")
                     return None, None
                     
-            except requests.Timeout:
-                logger.warning(f"⏱️ [{index}/{total}] Таймаут")
+            except requests.Timeout as e:
+                logger.warning(f"⏱️ [{index}/{total}] Таймаут для конфига {config_str[:100]}...")
                 return None, None
             except requests.ConnectionError as e:
-                logger.warning(f"🔌 [{index}/{total}] Ошибка соединения: {e}")
+                logger.warning(f"🔌 [{index}/{total}] Ошибка соединения для конфига {config_str[:100]}...")
+                logger.warning(f"🔌 [{index}/{total}] Детали: {e}")
                 return None, None
                 
         except Exception as e:
-            logger.error(f"💥 [{index}/{total}] Ошибка: {e}")
+            logger.error(f"💥 [{index}/{total}] Ошибка для конфига {config_str[:100]}...")
+            logger.error(f"💥 [{index}/{total}] Детали: {e}")
             return None, None
             
         finally:
@@ -543,7 +488,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
     print("="*60)
-    print("XRAY TESTER MODULE v1.4")
+    print("XRAY TESTER MODULE v1.6")
     print("="*60)
     
     if len(sys.argv) > 1:
