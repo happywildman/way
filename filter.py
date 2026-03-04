@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v7.4
+Power v7.5
 ====================================
-- Двухэтапная проверка: TCP ping → Xray
-- Быстрый предотбор мертвых серверов
-- Экономия времени ~70%
+- Двухуровневая проверка: быстрый Xray → полный Xray
+- Быстрый тест: запуск Xray на 1.5 сек для проверки рукопожатия
+- Точный тест: полный запрос через SOCKS5
 ====================================
 """
 
@@ -25,6 +25,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import socket
 import ssl
 import asyncio
+import tempfile
+import subprocess
 
 # Импорт Xray тестера
 from xray_tester import XrayTester
@@ -39,21 +41,21 @@ logger = logging.getLogger(__name__)
 
 
 class VlessCollector:
-    """Двухэтапный сборщик подписок с двухуровневой проверкой."""
+    """Двухэтапный сборщик подписок с двухуровневой Xray проверкой."""
     
     def __init__(self,
                  sources_file: str = 'sources.txt',
                  list_file: str = 'list.txt',
-                 all_file: str = 'all.txt',
+                 all_file: 'all.txt',
                  out_file: str = 'out.txt',
                  stat_file: str = 'stat.txt',
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
                  check_timeout: float = 5.0,
-                 tcp_timeout: int = 1,           # для быстрого TCP ping
+                 quick_timeout: float = 1.5,        # быстрый тест
                  download_workers: int = 10,
-                 check_workers: int = 10):        # увеличиваем параллельность
+                 check_workers: int = 10):           # параллельность Xray
         
         self.sources_file = sources_file
         self.list_file = list_file
@@ -64,16 +66,17 @@ class VlessCollector:
         self.speed_threshold = speed_threshold
         self.download_timeout = download_timeout
         self.check_timeout = check_timeout
-        self.tcp_timeout = tcp_timeout
+        self.quick_timeout = quick_timeout
         self.download_workers = download_workers
         self.check_workers = check_workers
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         
-        # Xray тестер (только для живых после TCP)
+        # Xray тестер (для точной проверки)
         self.tester = XrayTester(
             timeout=self.check_timeout,
             max_workers=self.check_workers
         )
+        self.xray_path = self.tester.xray_path  # используем тот же бинарник
         
         # Статистика по источникам
         self.source_stats = {}
@@ -202,35 +205,55 @@ class VlessCollector:
         
         return results
     
-    def extract_host_port(self, config: str) -> Tuple[Optional[str], Optional[int]]:
-        """Извлекает host и port из конфига любого типа."""
-        try:
-            # Ищем паттерн @host:port
-            match = re.search(r'@([^:?]+):(\d+)', config)
-            if match:
-                host, port = match.groups()
-                return host, int(port)
-            
-            # Ищем паттерн ://host:port
-            match = re.search(r'://([^:?]+):(\d+)', config)
-            if match:
-                host, port = match.groups()
-                return host, int(port)
-                
-        except Exception:
-            pass
-        return None, None
-    
-    def tcp_ping(self, host: str, port: int) -> bool:
-        """Быстрая проверка доступности порта."""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(self.tcp_timeout)
-            result = sock.connect_ex((host, port))
-            sock.close()
-            return result == 0
-        except:
+    def quick_xray_test(self, config_str: str) -> bool:
+        """
+        Быстрый тест через Xray - проверяет, запускается ли процесс.
+        Если процесс не умирает сразу - сервер отвечает на рукопожатие.
+        """
+        # Используем парсер из XrayTester
+        config_data = self.tester.parse_config(config_str)
+        if not config_data:
             return False
+        
+        temp_config = None
+        process = None
+        
+        try:
+            # Сохраняем во временный файл
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json.dump(config_data, f, indent=2)
+                temp_config = f.name
+            
+            # Запускаем Xray
+            process = subprocess.Popen(
+                [self.xray_path, '-config', temp_config],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            # Даем время на запуск
+            time.sleep(self.quick_timeout)
+            
+            # Если процесс жив - тест пройден
+            return process.poll() is None
+            
+        except Exception as e:
+            logger.debug(f"Быстрый тест ошибка: {e}")
+            return False
+            
+        finally:
+            if process:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except:
+                    process.kill()
+            
+            if temp_config and os.path.exists(temp_config):
+                try:
+                    os.unlink(temp_config)
+                except:
+                    pass
     
     def is_valid_config(self, config: str) -> Tuple[bool, str, int]:
         """Проверяет валидность конфига (любого протокола)."""
@@ -264,9 +287,9 @@ class VlessCollector:
         return config.replace('&;', '&')
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
-        """ШАГ 2: Двухуровневая проверка (TCP ping → Xray)."""
+        """ШАГ 2: Двухуровневая Xray проверка (быстрый + полный)."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (TCP ping + Xray)")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (быстрый Xray → полный Xray)")
         print("="*70)
         
         if not os.path.exists(self.list_file):
@@ -290,11 +313,12 @@ class VlessCollector:
         
         for source_url, configs in source_configs.items():
             for config in configs:
-                if self.is_valid_config(config)[0]:
+                # Оставляем только vless (по вашему предложению)
+                if config.startswith('vless://') and self.is_valid_config(config)[0]:
                     all_configs_with_sources.append((source_url, config))
                     source_totals[source_url] += 1
         
-        logger.info(f"🌍 Найдено серверов (с дубликатами): {len(all_configs_with_sources)}")
+        logger.info(f"🌍 Найдено vless серверов (с дубликатами): {len(all_configs_with_sources)}")
         
         if not all_configs_with_sources:
             return {}, {}, source_configs
@@ -307,41 +331,37 @@ class VlessCollector:
                 unique_configs_map[key] = (source_url, config)
         
         all_items = list(unique_configs_map.values())
-        logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных серверов")
+        logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных vless серверов")
         
-        # === УРОВЕНЬ 1: TCP PING (быстрый предотбор) ===
-        logger.info(f"📡 Запуск TCP ping предотбора ({self.check_workers} потоков, таймаут={self.tcp_timeout}c)...")
+        # === УРОВЕНЬ 1: БЫСТРЫЙ XRAY ТЕСТ ===
+        logger.info(f"⚡ Запуск быстрого Xray теста ({self.check_workers} потоков, таймаут={self.quick_timeout}c)...")
         
-        tcp_alive = []
-        tcp_dead = 0
+        quick_alive = []
+        quick_dead = 0
         
         with ThreadPoolExecutor(max_workers=self.check_workers) as executor:
-            future_to_item = {}
-            for source_url, config in all_items:
-                host, port = self.extract_host_port(config)
-                if host and port:
-                    future = executor.submit(self.tcp_ping, host, port)
-                    future_to_item[future] = (source_url, config, host, port)
-                else:
-                    tcp_dead += 1
+            future_to_item = {
+                executor.submit(self.quick_xray_test, config): (source_url, config)
+                for source_url, config in all_items
+            }
             
             for future in as_completed(future_to_item):
-                source_url, config, host, port = future_to_item[future]
+                source_url, config = future_to_item[future]
                 if future.result():
-                    tcp_alive.append((source_url, config))
+                    quick_alive.append((source_url, config))
                 else:
-                    tcp_dead += 1
+                    quick_dead += 1
         
-        logger.info(f"📊 TCP ping выжило: {len(tcp_alive)} из {len(all_items)} (отсеяно {tcp_dead})")
+        logger.info(f"📊 Быстрый Xray тест: выжило {len(quick_alive)} из {len(all_items)} (отсеяно {quick_dead})")
         
-        if not tcp_alive:
-            logger.warning("⚠️ Нет живых серверов после TCP ping")
+        if not quick_alive:
+            logger.warning("⚠️ Нет живых серверов после быстрого теста")
             return {}, {}, source_configs
         
-        # === УРОВЕНЬ 2: XRAY ТЕСТ ===
-        config_list = [config for source_url, config in tcp_alive]
+        # === УРОВЕНЬ 2: ПОЛНЫЙ XRAY ТЕСТ ===
+        config_list = [config for source_url, config in quick_alive]
         
-        logger.info(f"🚀 Запуск Xray проверки ({self.tester.max_workers} процессов, таймаут={self.tester.timeout}c)...")
+        logger.info(f"🚀 Запуск полного Xray теста ({self.tester.max_workers} процессов, таймаут={self.tester.timeout}c)...")
         
         start_time = time.time()
         alive_results = self.tester.test_many(config_list)
@@ -355,7 +375,7 @@ class VlessCollector:
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
-        for source_url, config in tcp_alive:
+        for source_url, config in quick_alive:
             if config in alive_dict:
                 speed = alive_dict[config]
                 working_all[config] = speed
@@ -380,9 +400,9 @@ class VlessCollector:
         
         print("\n" + "="*70)
         print(f"✅ ПРОВЕРКА ЗАВЕРШЕНА:")
-        print(f"   - Уникальных серверов: {len(all_items)}")
-        print(f"   - Прошли TCP ping: {len(tcp_alive)}")
-        print(f"   - Прошли Xray: {len(working_all)}")
+        print(f"   - Уникальных vless серверов: {len(all_items)}")
+        print(f"   - Прошли быстрый тест: {len(quick_alive)}")
+        print(f"   - Прошли полный тест: {len(working_all)}")
         print(f"   - Быстрых (<{self.speed_threshold}ms): {len(working_fast)}")
         print(f"   - Время: {elapsed:.1f} сек")
         print("="*70)
@@ -394,16 +414,16 @@ class VlessCollector:
         with open(self.stat_file, 'w', encoding='utf-8') as f:
             f.write("="*70 + "\n📊 СТАТИСТИКА\n" + "="*70 + "\n\n")
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Таймауты: TCP={self.tcp_timeout}c, Xray={self.check_timeout}c\n\n")
+            f.write(f"Таймауты: быстрый={self.quick_timeout}c, полный={self.check_timeout}c\n\n")
             
             total_all = passed_all = 0
             for url, stats in sorted(self.source_stats.items(), key=lambda x: x[1]['passed']/x[1]['total'] if x[1]['total'] else 0, reverse=True):
                 if stats['total']:
                     total_all += stats['total']
                     passed_all += stats['passed']
-                    f.write(f"📌 {url}\n   Total: {stats['total']}\n   ✅ Прошли Xray: {stats['passed']} ({stats['passed']/stats['total']*100:.1f}%)\n   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
+                    f.write(f"📌 {url}\n   Total vless: {stats['total']}\n   ✅ Прошли полный тест: {stats['passed']} ({stats['passed']/stats['total']*100:.1f}%)\n   ⚡ Avg ping: {stats['avg_ping']:.0f}ms\n\n")
             
-            f.write("="*70 + "\n📈 ОБЩАЯ СТАТИСТИКА\n" + "="*70 + f"\nВсего проверено: {total_all}\n✅ Прошли Xray: {passed_all} ({passed_all/total_all*100:.1f}%)\n")
+            f.write("="*70 + "\n📈 ОБЩАЯ СТАТИСТИКА\n" + "="*70 + f"\nВсего vless серверов: {total_all}\n✅ Прошли полный тест: {passed_all} ({passed_all/total_all*100:.1f}%)\n")
     
     def save_results(self, working_all: Dict[str, float], working_fast: Dict[str, float]):
         """Сохраняет all.txt, out.txt, 500.txt."""
@@ -419,7 +439,7 @@ class VlessCollector:
             with open(self.all_file, 'w', encoding='utf-8') as f:
                 for c, _ in unique.values():
                     f.write(c + '\n')
-            logger.info(f"✅ Сохранено {len(unique)} в all.txt")
+            logger.info(f"✅ Сохранено {len(unique)} vless серверов в all.txt")
         
         # out.txt
         if working_fast:
@@ -432,7 +452,7 @@ class VlessCollector:
             with open(self.out_file, 'w', encoding='utf-8') as f:
                 for c, _ in unique_fast.values():
                     f.write(c + '\n')
-            logger.info(f"✅ Сохранено {len(unique_fast)} в out.txt")
+            logger.info(f"✅ Сохранено {len(unique_fast)} быстрых vless серверов в out.txt")
             
             # 500.txt
             top = sorted(unique_fast.values(), key=lambda x: x[1])[:500]
@@ -444,11 +464,12 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v7.4")
+        print("🚀 POWER v7.5")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
-        print(f"TCP ТАЙМАУТ: {self.tcp_timeout}с | XRAY ТАЙМАУТ: {self.check_timeout}с")
-        print("ПРОВЕРКА: TCP ping (быстрый) → Xray (точный)")
+        print(f"ТАЙМАУТЫ: быстрый Xray={self.quick_timeout}c | полный Xray={self.check_timeout}c")
+        print("ПРОВЕРКА: быстрый Xray (рукопожатие) → полный Xray (реальный запрос)")
+        print(f"ПРОТОКОЛЫ: ТОЛЬКО VLESS")
         print(f"ПАРАЛЛЕЛЬНОСТЬ: {self.check_workers} потоков")
         print("="*70)
         
