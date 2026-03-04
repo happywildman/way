@@ -2,14 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v7.1
+Power v7.2
 ====================================
-- Асинхронная проверка через curl_cffi
-- Исправлено извлечение host:port из конфигов
+- Асинхронная проверка через Xray-core (вместо curl_cffi)
 - URL: https://www.gstatic.com/generate_204
-- Таймаут: 2.5 сек
-- Конкурентность: 50
-- Impersonate: chrome110
+- Таймаут: 5 сек
+- Конкурентность: 3 (Xray процессы тяжелые)
 ====================================
 """
 
@@ -29,8 +27,8 @@ import socket
 import ssl
 import asyncio
 
-# Импорт асинхронного модуля (curl_cffi версия)
-from asynctest import AsyncChecker
+# Импорт Xray тестера (вместо asynctest)
+from xray_tester import XrayTester
 
 # Настройка логирования
 logging.basicConfig(
@@ -42,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 class VlessCollector:
-    """Двухэтапный сборщик подписок (ВСЕ ПРОТОКОЛЫ, проверка через curl_cffi)."""
+    """Двухэтапный сборщик подписок (ВСЕ ПРОТОКОЛЫ, проверка через Xray)."""
     
     def __init__(self,
                  sources_file: str = 'sources.txt',
@@ -53,10 +51,10 @@ class VlessCollector:
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: float = 2.5,
+                 check_timeout: float = 5.0,        # Xray требует больше времени
                  tcp_timeout: int = 2,
                  download_workers: int = 10,
-                 check_workers: int = 50):
+                 check_workers: int = 3):           # Xray процессы тяжелые, не больше 3-5
         
         self.sources_file = sources_file
         self.list_file = list_file
@@ -72,10 +70,10 @@ class VlessCollector:
         self.check_workers = check_workers
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         
-        # Асинхронный проверщик (curl_cffi версия)
-        self.checker = AsyncChecker(
+        # Xray тестер (вместо AsyncChecker)
+        self.tester = XrayTester(
             timeout=self.check_timeout,
-            concurrent=50
+            max_workers=self.check_workers
         )
         
         # Статистика по источникам
@@ -205,37 +203,6 @@ class VlessCollector:
         
         return results
     
-    def extract_proxy_string(self, config: str) -> Optional[str]:
-        """
-        Извлекает host:port из конфига и возвращает в формате http://host:port
-        для передачи в curl_cffi.
-        """
-        try:
-            # Ищем паттерн @host:port (основной формат)
-            match = re.search(r'@([^:?]+):(\d+)', config)
-            if match:
-                host, port = match.groups()
-                return f"http://{host}:{port}"
-            
-            # Альтернативный формат: protocol://host:port
-            match = re.search(r'://([^:?]+):(\d+)', config)
-            if match:
-                host, port = match.groups()
-                return f"http://{host}:{port}"
-            
-            # Если не нашли, пробуем просто host:port в любом месте
-            match = re.search(r'([a-zA-Z0-9.-]+):(\d+)', config)
-            if match:
-                host, port = match.groups()
-                # Исключаем IP-адреса в параметрах (они обычно длинные)
-                if len(host) < 50 and int(port) < 65536:
-                    return f"http://{host}:{port}"
-                    
-        except Exception as e:
-            logger.debug(f"extract_proxy_string error: {e}")
-        
-        return None
-    
     def is_valid_config(self, config: str) -> Tuple[bool, str, int]:
         """Проверяет валидность конфига (любого протокола)."""
         try:
@@ -268,9 +235,9 @@ class VlessCollector:
         return config.replace('&;', '&')
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
-        """ШАГ 2: Проверяет все сервера (асинхронно через curl_cffi)."""
+        """ШАГ 2: Проверяет все сервера (через Xray)."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (curl_cffi)")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (Xray)")
         print("="*70)
         
         if not os.path.exists(self.list_file):
@@ -289,17 +256,15 @@ class VlessCollector:
                     source_configs[current_source].append(line)
         
         # Собираем все конфиги с источниками
-        all_configs_with_sources = []  # (source_url, config, host, port, proxy_string)
+        all_configs_with_sources = []  # (source_url, config)
         source_totals = defaultdict(int)
         
         for source_url, configs in source_configs.items():
             for config in configs:
-                is_valid, host, port = self.is_valid_config(config)
-                if is_valid:
-                    proxy_string = self.extract_proxy_string(config)
-                    if proxy_string:
-                        all_configs_with_sources.append((source_url, config, host, port, proxy_string))
-                        source_totals[source_url] += 1
+                # Проверяем что конфиг валидный (любой протокол)
+                if self.is_valid_config(config)[0]:
+                    all_configs_with_sources.append((source_url, config))
+                    source_totals[source_url] += 1
         
         logger.info(f"🌍 Найдено серверов (с дубликатами): {len(all_configs_with_sources)}")
         
@@ -308,27 +273,27 @@ class VlessCollector:
         
         # Дедупликация до проверки
         unique_configs_map = {}
-        for source_url, config, host, port, proxy_string in all_configs_with_sources:
+        for source_url, config in all_configs_with_sources:
             key = self.get_config_key(config)
             if key not in unique_configs_map:
-                unique_configs_map[key] = (source_url, config, host, port, proxy_string)
+                unique_configs_map[key] = (source_url, config)
         
         all_items = list(unique_configs_map.values())
         
         logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных серверов")
         logger.info(f"📊 Сэкономлено проверок: {len(all_configs_with_sources) - len(all_items)}")
         
-        # Подготавливаем список для асинхронной проверки
-        proxy_list = [item[4] for item in all_items]  # proxy_string = http://host:port
+        # Подготавливаем список для Xray проверки
+        config_list = [config for source_url, config in all_items]
         
-        logger.info(f"🚀 Запуск асинхронной проверки (конкурентность=50, таймаут={self.checker.timeout}с, impersonate={self.checker.impersonate})...")
+        logger.info(f"🚀 Запуск Xray проверки ({self.tester.max_workers} процессов, таймаут={self.tester.timeout}с)...")
         
-        # Асинхронная проверка через curl_cffi
+        # Xray проверка
         start_time = time.time()
-        alive_results = self.checker.check(proxy_list)
+        alive_results = self.tester.test_many(config_list)
         
         # Создаем словарь для быстрого поиска
-        alive_dict = {proxy: speed for proxy, speed in alive_results}
+        alive_dict = {config: speed for config, speed in alive_results}
         
         # Формируем результаты
         working_all = {}
@@ -336,9 +301,9 @@ class VlessCollector:
         source_passed = defaultdict(int)
         source_pings = defaultdict(list)
         
-        for source_url, config, host, port, proxy_string in all_items:
-            if proxy_string in alive_dict:
-                speed = alive_dict[proxy_string]
+        for source_url, config in all_items:
+            if config in alive_dict:
+                speed = alive_dict[config]
                 working_all[config] = speed
                 if speed <= self.speed_threshold:
                     working_fast[config] = speed
@@ -415,40 +380,4 @@ class VlessCollector:
             
             with open(self.out_file, 'w', encoding='utf-8') as f:
                 for c, _ in unique_fast.values():
-                    f.write(c + '\n')
-            logger.info(f"✅ Сохранено {len(unique_fast)} в out.txt")
-            
-            # 500.txt
-            top = sorted(unique_fast.values(), key=lambda x: x[1])[:500]
-            with open(self.top500_file, 'w', encoding='utf-8') as f:
-                for c, _ in top:
-                    f.write(c + '\n')
-            logger.info(f"✅ Сохранено топ-{len(top)} в 500.txt")
-    
-    def run(self):
-        """Основной процесс."""
-        print("="*70)
-        print("🚀 POWER v7.1")
-        print("="*70)
-        print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
-        print(f"ТАЙМАУТ: {self.check_timeout}с")
-        print("ПРОТОКОЛЫ: ВСЕ")
-        print("ПРОВЕРКА: curl_cffi (имитация Chrome 110)")
-        print(f"ФОРМАТ: http://host:port (извлечено из конфигов)")
-        print("ДЕДУПЛИКАЦИЯ: ДО ПРОВЕРКИ")
-        print("GeoIP: УДАЛЕН | trash: УДАЛЕН")
-        print("="*70)
-        
-        start = time.time()
-        sources = self.step1_collect_all()
-        if sources:
-            all_cfg, fast_cfg, src_cfg = self.step2_check_all(sources)
-            self.save_results(all_cfg, fast_cfg)
-            self.save_stats(fast_cfg, src_cfg)
-        print(f"\n🎯 ГОТОВО! Время: {time.time()-start:.1f} сек")
-        print("="*70)
-
-
-if __name__ == "__main__":
-    collector = VlessCollector()
-    collector.run()
+                    f.write(c + '\
