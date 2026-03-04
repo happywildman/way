@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Xray Tester Module v1.1 (Diagnostic)
+Xray Tester Module v1.2 (Ultra Diagnostic)
 ====================================
-- Добавлено подробное логирование
-- Проверка скачивания Xray
-- Тестовый запуск Xray после скачивания
-- Таймауты на все операции
+- Логирование каждого шага test_many
+- Таймаут на каждый тест
+- Принудительное логирование ошибок
 ====================================
 """
 
@@ -22,7 +21,7 @@ import zipfile
 import urllib.parse
 import base64
 from typing import List, Tuple, Optional, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 import logging
 import shutil
 import concurrent.futures
@@ -33,7 +32,6 @@ logger = logging.getLogger(__name__)
 class XrayTester:
     """
     Тестировщик конфигов через Xray-core.
-    Использует готовые бинарники Xray.
     """
     
     def __init__(self, 
@@ -51,29 +49,25 @@ class XrayTester:
     def _ensure_xray(self) -> str:
         """
         Проверяет наличие Xray-core, скачивает если отсутствует.
-        С подробным логированием каждого шага.
         """
         xray_path = os.path.join(self.xray_dir, 'xray')
         
         # Если уже есть - проверяем что работает
         if os.path.exists(xray_path):
             logger.info(f"✅ Xray-core найден: {xray_path}")
-            # Проверяем что бинарник рабочий
             try:
                 result = subprocess.run([xray_path, '-version'], 
                                       capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
                     version = result.stdout.splitlines()[0] if result.stdout else "unknown"
                     logger.info(f"✅ Xray работает: {version}")
+                    return xray_path
                 else:
                     logger.error(f"❌ Xray бинарник поврежден, перезагружаю...")
                     os.remove(xray_path)
-                    return self._ensure_xray()
             except Exception as e:
                 logger.error(f"❌ Ошибка проверки Xray: {e}, перезагружаю...")
                 os.remove(xray_path)
-                return self._ensure_xray()
-            return xray_path
         
         logger.info("📥 Xray-core не найден. Начинаю скачивание...")
         
@@ -83,132 +77,87 @@ class XrayTester:
         
         if 'windows' in system:
             system = 'windows'
-            ext = '.exe'
         elif 'darwin' in system:
             system = 'macos'
-            ext = ''
         else:
             system = 'linux'
-            ext = ''
         
-        # Скачиваем последнюю версию
         url = f"https://github.com/XTLS/Xray-core/releases/latest/download/Xray-{system}-64.zip"
         zip_path = os.path.join(self.xray_dir, 'xray.zip')
         
         try:
-            # Создаем директорию
             os.makedirs(self.xray_dir, exist_ok=True)
-            logger.info(f"📁 Создана директория: {self.xray_dir}")
+            logger.info(f"⬇️ Скачиваю Xray с {url}...")
             
-            # Скачиваем
-            logger.info(f"⬇️ Скачиваю Xray для {system} с {url}...")
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
             
             total_size = int(response.headers.get('content-length', 0))
-            logger.info(f"📦 Размер файла: {total_size} байт")
+            logger.info(f"📦 Размер: {total_size / 1024 / 1024:.1f} MB")
             
             with open(zip_path, 'wb') as f:
                 downloaded = 0
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if total_size > 0:
-                        percent = (downloaded / total_size) * 100
-                        if downloaded % (1024*1024) < 8192:  # Логируем каждый мегабайт
-                            logger.info(f"⬇️ Загружено: {downloaded/(1024*1024):.1f} MB ({percent:.1f}%)")
+                    if total_size > 0 and downloaded % (1024*1024) < 8192:
+                        logger.info(f"⬇️ Загружено: {downloaded/1024/1024:.1f} MB")
             
-            logger.info(f"✅ Скачивание завершено: {zip_path}")
-            
-            # Распаковываем
             logger.info("📦 Распаковываю...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                file_list = zip_ref.namelist()
-                logger.info(f"📋 Файлы в архиве: {file_list}")
                 zip_ref.extractall(self.xray_dir)
             
-            # Делаем исполняемым на Unix
             if system != 'windows':
-                logger.info(f"🔧 Устанавливаю права на исполнение: {xray_path}")
                 os.chmod(xray_path, 0o755)
             
-            # Удаляем zip
             os.remove(zip_path)
-            logger.info(f"🗑️ Временный файл удален: {zip_path}")
             
-            # Проверяем что скачалось
-            if not os.path.exists(xray_path):
-                raise Exception(f"Xray бинарник не найден после распаковки: {xray_path}")
-            
-            logger.info(f"✅ Xray-core готов: {xray_path}")
-            
-            # Тестовый запуск
-            logger.info("🧪 Выполняю тестовый запуск Xray...")
+            # Проверяем что работает
             result = subprocess.run([xray_path, '-version'], 
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 version = result.stdout.splitlines()[0] if result.stdout else "unknown"
-                logger.info(f"✅ Xray успешно запущен: {version}")
+                logger.info(f"✅ Xray успешно установлен: {version}")
             else:
-                logger.error(f"❌ Xray не запускается. STDERR: {result.stderr}")
+                logger.error(f"❌ Xray не запускается после установки")
                 raise Exception("Xray не работает")
             
             return xray_path
             
-        except requests.Timeout:
-            logger.error("❌ Таймаут при скачивании Xray")
-            raise
-        except requests.ConnectionError as e:
-            logger.error(f"❌ Ошибка соединения при скачивании: {e}")
-            raise
-        except zipfile.BadZipFile as e:
-            logger.error(f"❌ Ошибка распаковки ZIP: {e}")
-            raise
         except Exception as e:
-            logger.error(f"❌ Неожиданная ошибка при подготовке Xray: {e}")
+            logger.error(f"❌ Ошибка установки Xray: {e}")
             raise
     
     def parse_config(self, config_str: str) -> Optional[Dict]:
-        """
-        Парсит конфиг любого типа в формат Xray.
-        Поддерживает: vless, vmess, trojan, ss.
-        Возвращает словарь с конфигурацией для Xray.
-        """
+        """Парсит конфиг любого типа в формат Xray."""
         try:
+            logger.debug(f"Парсинг: {config_str[:50]}...")
             if config_str.startswith('vless://'):
-                logger.debug(f"Парсинг vless: {config_str[:50]}...")
                 return self._parse_vless(config_str)
             elif config_str.startswith('vmess://'):
-                logger.debug(f"Парсинг vmess: {config_str[:50]}...")
                 return self._parse_vmess(config_str)
             elif config_str.startswith('trojan://'):
-                logger.debug(f"Парсинг trojan: {config_str[:50]}...")
                 return self._parse_trojan(config_str)
             elif config_str.startswith('ss://'):
-                logger.debug(f"Парсинг ss: {config_str[:50]}...")
                 return self._parse_shadowsocks(config_str)
             else:
-                logger.debug(f"Неподдерживаемый протокол: {config_str[:50]}...")
+                logger.debug(f"Неподдерживаемый протокол")
                 return None
         except Exception as e:
-            logger.debug(f"Ошибка парсинга {config_str[:50]}...: {e}")
+            logger.debug(f"Ошибка парсинга: {e}")
             return None
     
     def _parse_vless(self, vless_str: str) -> Dict:
-        """Парсит vless:// ссылку в Xray JSON."""
+        """Парсит vless:// ссылку."""
         parsed = urllib.parse.urlparse(vless_str)
-        
-        # Извлекаем uuid@host:port
         user_info = parsed.netloc.split('@')
         uuid = user_info[0]
         host_port = user_info[1].split(':')
         host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 443
         
-        # Парсим параметры
         params = urllib.parse.parse_qs(parsed.query)
         
-        # Базовый outbound
         outbound = {
             "protocol": "vless",
             "settings": {
@@ -228,7 +177,6 @@ class XrayTester:
             }
         }
         
-        # Добавляем Reality параметры если есть
         if params.get('security', [''])[0] == 'reality':
             outbound['streamSettings']['realitySettings'] = {
                 "serverName": params.get('sni', [''])[0],
@@ -237,7 +185,6 @@ class XrayTester:
                 "shortId": params.get('sid', [''])[0]
             }
         
-        # Добавляем WS параметры если есть
         if params.get('type', [''])[0] == 'ws':
             outbound['streamSettings']['wsSettings'] = {
                 "path": params.get('path', ['/'])[0],
@@ -249,16 +196,13 @@ class XrayTester:
         return self._create_full_config(outbound)
     
     def _parse_vmess(self, vmess_str: str) -> Optional[Dict]:
-        """Парсит vmess:// ссылку (base64 encoded)."""
-        b64_part = vmess_str[8:]  # убираем 'vmess://'
+        """Парсит vmess:// ссылку."""
+        b64_part = vmess_str[8:]
         
-        # Декодируем base64
         try:
-            # Пробуем обычный base64
             decoded = base64.b64decode(b64_part).decode('utf-8')
             config_json = json.loads(decoded)
         except:
-            # Пробуем url-safe base64
             try:
                 b64_part = b64_part.replace('-', '+').replace('_', '/')
                 while len(b64_part) % 4:
@@ -266,7 +210,6 @@ class XrayTester:
                 decoded = base64.b64decode(b64_part).decode('utf-8')
                 config_json = json.loads(decoded)
             except:
-                logger.debug(f"Не удалось декодировать vmess: {vmess_str[:50]}...")
                 return None
         
         outbound = {
@@ -288,7 +231,6 @@ class XrayTester:
             }
         }
         
-        # Добавляем WS параметры
         if outbound['streamSettings']['network'] == 'ws':
             outbound['streamSettings']['wsSettings'] = {
                 "path": config_json.get('path', '/'),
@@ -303,7 +245,6 @@ class XrayTester:
         """Парсит trojan:// ссылку."""
         parsed = urllib.parse.urlparse(trojan_str)
         
-        # Извлекаем password@host:port
         if '@' not in parsed.netloc:
             return None
         
@@ -312,7 +253,6 @@ class XrayTester:
         host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 443
         
-        # Парсим параметры
         params = urllib.parse.parse_qs(parsed.query)
         
         outbound = {
@@ -330,7 +270,6 @@ class XrayTester:
             }
         }
         
-        # Добавляем WS параметры если есть
         if outbound['streamSettings']['network'] == 'ws':
             outbound['streamSettings']['wsSettings'] = {
                 "path": params.get('path', ['/'])[0],
@@ -346,7 +285,6 @@ class XrayTester:
         try:
             parsed = urllib.parse.urlparse(ss_str)
             
-            # Может быть в формате ss://base64@host:port
             if '@' in parsed.netloc:
                 b64_part, host_port = parsed.netloc.split('@', 1)
                 try:
@@ -360,7 +298,6 @@ class XrayTester:
                     method = 'chacha20-ietf-poly1305'
                     password = b64_part
             else:
-                # Формат ss://method:password@host:port
                 auth, host_port = parsed.netloc.split('@', 1)
                 if ':' in auth:
                     method, password = auth.split(':', 1)
@@ -394,7 +331,7 @@ class XrayTester:
             return None
     
     def _create_full_config(self, outbound: Dict) -> Dict:
-        """Создает полный конфиг Xray с inbound для SOCKS5."""
+        """Создает полный конфиг Xray."""
         return {
             "log": {
                 "loglevel": "error"
@@ -417,29 +354,30 @@ class XrayTester:
             }]
         }
     
-    def _test_one_internal(self, config_str: str) -> Tuple[Optional[str], Optional[float]]:
+    def test_one(self, config_str: str, index: int, total: int) -> Tuple[Optional[str], Optional[float]]:
         """
-        Внутренняя функция тестирования одного конфига.
-        Вынесена отдельно для возможности таймаута.
+        Тестирует один конфиг с детальным логированием.
         """
         temp_config = None
         process = None
+        
+        logger.info(f"🔍 [{index}/{total}] Тестирую конфиг: {config_str[:50]}...")
         
         try:
             # Парсим конфиг
             config_data = self.parse_config(config_str)
             if not config_data:
-                logger.debug(f"Не удалось распарсить конфиг")
+                logger.warning(f"❌ [{index}/{total}] Не удалось распарсить конфиг")
                 return None, None
             
             # Сохраняем во временный файл
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 json.dump(config_data, f, indent=2)
                 temp_config = f.name
-                logger.debug(f"📝 Временный конфиг: {temp_config}")
+                logger.debug(f"📝 [{index}/{total}] Временный конфиг: {temp_config}")
             
             # Запускаем Xray
-            logger.debug(f"🚀 Запуск Xray с конфигом...")
+            logger.debug(f"🚀 [{index}/{total}] Запуск Xray...")
             process = subprocess.Popen(
                 [self.xray_path, '-config', temp_config],
                 stdout=subprocess.PIPE,
@@ -452,13 +390,12 @@ class XrayTester:
             
             # Проверяем что процесс жив
             if process.poll() is not None:
-                # Процесс умер сразу
                 stdout, stderr = process.communicate()
-                logger.debug(f"❌ Xray умер сразу. STDERR: {stderr}")
+                logger.error(f"❌ [{index}/{total}] Xray умер сразу. STDERR: {stderr}")
                 return None, None
             
-            # Тестируем через SOCKS5 прокси
-            logger.debug(f"🔍 Отправка запроса через SOCKS5 на 127.0.0.1:{self.socks_port}")
+            # Тестируем через SOCKS5
+            logger.debug(f"🔌 [{index}/{total}] Отправка запроса через SOCKS5...")
             start = time.time()
             
             proxies = {
@@ -466,90 +403,79 @@ class XrayTester:
                 'https': f'socks5://127.0.0.1:{self.socks_port}'
             }
             
-            response = requests.get(
-                'https://www.gstatic.com/generate_204',
-                proxies=proxies,
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 204:
-                elapsed = (time.time() - start) * 1000
-                logger.debug(f"✅ Успех! Задержка: {elapsed:.2f}ms")
-                return config_str, round(elapsed, 2)
-            else:
-                logger.debug(f"❌ Не 204 ответ: {response.status_code}")
+            try:
+                response = requests.get(
+                    'https://www.gstatic.com/generate_204',
+                    proxies=proxies,
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 204:
+                    elapsed = (time.time() - start) * 1000
+                    logger.info(f"✅ [{index}/{total}] Успех! Задержка: {elapsed:.2f}ms")
+                    return config_str, round(elapsed, 2)
+                else:
+                    logger.warning(f"❌ [{index}/{total}] Не 204 ответ: {response.status_code}")
+                    return None, None
+                    
+            except requests.Timeout:
+                logger.warning(f"⏱️ [{index}/{total}] Таймаут при запросе")
+                return None, None
+            except requests.ConnectionError as e:
+                logger.warning(f"🔌 [{index}/{total}] Ошибка соединения: {e}")
                 return None, None
                 
-        except requests.Timeout:
-            logger.debug(f"⏱️ Таймаут при проверке")
-            return None, None
-        except requests.ConnectionError as e:
-            logger.debug(f"🔌 Ошибка соединения через SOCKS5: {e}")
-            return None, None
         except Exception as e:
-            logger.debug(f"❌ Ошибка тестирования: {e}")
+            logger.error(f"💥 [{index}/{total}] Неожиданная ошибка: {e}")
             return None, None
             
         finally:
-            # Останавливаем процесс
             if process:
-                logger.debug(f"🛑 Остановка Xray процесса...")
+                logger.debug(f"🛑 [{index}/{total}] Остановка Xray...")
                 process.terminate()
                 try:
                     process.wait(timeout=2)
                 except:
-                    logger.debug(f"💥 Принудительное завершение Xray")
                     process.kill()
             
-            # Удаляем временный файл
             if temp_config and os.path.exists(temp_config):
                 try:
                     os.unlink(temp_config)
-                    logger.debug(f"🗑️ Удален временный файл: {temp_config}")
                 except:
                     pass
     
-    def test_one(self, config_str: str) -> Tuple[Optional[str], Optional[float]]:
-        """
-        Тестирует один конфиг через Xray с общим таймаутом.
-        Возвращает (config_str, задержка_в_мс) или (None, None) при ошибке.
-        """
-        # Добавляем общий таймаут на всю операцию
-        try:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(self._test_one_internal, config_str)
-                return future.result(timeout=self.timeout + 5)  # таймаут + запас
-        except concurrent.futures.TimeoutError:
-            logger.warning(f"⏱️ Таймаут при тестировании конфига")
-            return None, None
-    
     def test_many(self, configs: List[str]) -> List[Tuple[str, float]]:
         """
-        Тестирует множество конфигов параллельно.
-        Xray процессы тяжелые, поэтому ограничиваем self.max_workers.
-        Возвращает список (config, задержка) отсортированный по скорости.
+        Тестирует множество конфигов параллельно с детальным логированием.
         """
         if not configs:
+            logger.warning("⚠️ Нет конфигов для тестирования")
             return []
         
-        logger.info(f"🚀 Запуск Xray тестирования ({self.max_workers} процессов, таймаут={self.timeout}с)")
+        logger.info(f"🚀 Запуск Xray тестирования: {len(configs)} конфигов, {self.max_workers} процессов")
+        logger.info(f"⚙️ Параметры: таймаут={self.timeout}с, порт SOCKS5={self.socks_port}")
         
         results = []
+        total = len(configs)
+        completed = 0
+        
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_config = {
-                executor.submit(self.test_one, config): config 
-                for config in configs
+                executor.submit(self.test_one, config, i+1, total): config 
+                for i, config in enumerate(configs)
             }
             
             for future in as_completed(future_to_config):
+                completed += 1
                 config, speed = future.result()
                 if config:
                     results.append((config, speed))
-                    logger.debug(f"✅ {config[:60]}... | {speed}ms")
+                
+                if completed % 10 == 0:
+                    logger.info(f"📊 Прогресс: {completed}/{total} завершено, найдено {len(results)} рабочих")
         
-        # Сортируем по скорости
         results.sort(key=lambda x: x[1])
-        logger.info(f"📊 Найдено рабочих: {len(results)} из {len(configs)}")
+        logger.info(f"✅ Тестирование завершено: {len(results)} рабочих из {total}")
         
         return results
 
@@ -558,24 +484,25 @@ class XrayTester:
 if __name__ == "__main__":
     import sys
     
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
     
     print("="*60)
-    print("XRAY TESTER MODULE v1.1 (Diagnostic)")
+    print("XRAY TESTER MODULE v1.2 (Ultra Diagnostic)")
     print("="*60)
     
-    # Тестируем один конфиг если передан аргументом
     if len(sys.argv) > 1:
         config = sys.argv[1]
         tester = XrayTester(max_workers=1)
-        result, speed = tester.test_one(config)
+        result, speed = tester.test_one(config, 1, 1)
         if result:
             print(f"\n✅ РАБОТАЕТ! Задержка: {speed}ms")
         else:
             print("\n❌ НЕ РАБОТАЕТ")
         sys.exit(0)
     
-    # Иначе читаем из stdin
     print("Введите конфиги (по одному в строке, пустая строка для завершения):")
     configs = []
     while True:
