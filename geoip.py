@@ -2,11 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-GeoIP Module v1.0
+GeoIP Module v1.1 (Diagnostic)
 ====================================
-- Скачивает GeoIP базу из runetfreedom/russia-blocked-geoip
-- Определяет страну по хосту
-- Кэширует результаты для ускорения
+- Добавлено логирование DNS резолвинга
+- Видно, какие домены не определяются
 ====================================
 """
 
@@ -131,10 +130,14 @@ class GeoIP:
             return False
     
     def _resolve_host(self, host: str) -> Optional[str]:
-        """Разрешает доменное имя в IP-адрес."""
+        """Разрешает доменное имя в IP-адрес с диагностикой."""
+        logger.info(f"🔍 DNS: резолвлю {host}...")
         try:
-            return socket.gethostbyname(host)
-        except socket.gaierror:
+            ip = socket.gethostbyname(host)
+            logger.info(f"   ✅ {host} → {ip}")
+            return ip
+        except socket.gaierror as e:
+            logger.warning(f"   ❌ Ошибка резолвинга {host}: {e}")
             return None
     
     def _simplified_country(self, ip: str) -> str:
@@ -161,7 +164,7 @@ class GeoIP:
     
     def get_country(self, host: str) -> str:
         """
-        Определяет страну по хосту.
+        Определяет страну по хосту с диагностикой.
         
         Args:
             host: доменное имя или IP-адрес
@@ -171,14 +174,19 @@ class GeoIP:
         """
         # Проверяем кэш
         if host in self.cache:
+            logger.info(f"🔍 {host} → из кэша: {self.cache[host]}")
             return self.cache[host]
+        
+        logger.info(f"🔍 Определяю страну для: {host}")
         
         # Получаем IP
         if self._is_ip(host):
             ip = host
+            logger.info(f"   Это IP: {ip}")
         else:
             ip = self._resolve_host(host)
             if not ip:
+                logger.warning(f"⚠️ Не удалось разрешить домен, считаем UNKNOWN")
                 self.cache[host] = "UNKNOWN"
                 return "UNKNOWN"
         
@@ -188,12 +196,16 @@ class GeoIP:
                 result = self.db.get(ip)
                 if result and 'country' in result and 'iso_code' in result['country']:
                     country = result['country']['iso_code']
+                    logger.info(f"   ✅ {host} → {country} (по базе)")
                     self.cache[host] = country
                     return country
-            except:
-                pass
+                else:
+                    logger.info(f"   ⚠️ {host} → страна не определена в базе")
+            except Exception as e:
+                logger.error(f"   ❌ Ошибка запроса к базе: {e}")
         
         # Fallback на упрощенный определитель
+        logger.info(f"   Использую упрощенный определитель для {ip}")
         country = self._simplified_country(ip)
         self.cache[host] = country
         return country
@@ -214,7 +226,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
     print("="*60)
-    print("GEOIP MODULE v1.0")
+    print("GEOIP MODULE v1.1 (Diagnostic)")
     print("="*60)
     
     geo = GeoIP()
