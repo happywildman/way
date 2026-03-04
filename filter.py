@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v7.6
+Power v7.7
 ====================================
-- Добавлено логирование прогресса быстрого Xray теста
-- Каждый тест логируется с номером
+- Увеличена параллельность до 30 потоков
+- Таймаут быстрого теста оставлен 1.5с
 ====================================
 """
 
@@ -52,9 +52,9 @@ class VlessCollector:
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
                  check_timeout: float = 5.0,
-                 quick_timeout: float = 1.5,
+                 quick_timeout: float = 1.5,        # оставляем 1.5с
                  download_workers: int = 10,
-                 check_workers: int = 10):
+                 check_workers: int = 30):           # увеличиваем до 30
         
         self.sources_file = sources_file
         self.list_file = list_file
@@ -457,7 +457,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v7.6")
+        print("🚀 POWER v7.7")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: быстрый Xray={self.quick_timeout}c | полный Xray={self.check_timeout}c")
