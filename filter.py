@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v7.7
+Power v7.9
 ====================================
-- Увеличена параллельность до 30 потоков
-- Таймаут быстрого теста оставлен 1.5с
+- 50 потоков
+- Быстрый тест 1 секунда
 ====================================
 """
 
@@ -52,9 +52,9 @@ class VlessCollector:
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
                  check_timeout: float = 5.0,
-                 quick_timeout: float = 1.5,        # оставляем 1.5с
+                 quick_timeout: float = 1.0,        # УМЕНЬШЕНО до 1 секунды
                  download_workers: int = 10,
-                 check_workers: int = 30):           # увеличиваем до 30
+                 check_workers: int = 50):           # 50 потоков
         
         self.sources_file = sources_file
         self.list_file = list_file
@@ -206,14 +206,12 @@ class VlessCollector:
     
     def quick_xray_test(self, config_str: str, index: int, total: int) -> bool:
         """
-        Быстрый тест через Xray - проверяет, запускается ли процесс.
-        Если процесс не умирает сразу - сервер отвечает на рукопожатие.
+        Быстрый тест через Xray - проверяет, запускается ли процесс (1 секунда).
         """
         logger.info(f"⚡ [{index}/{total}] Быстрый тест: {config_str[:50]}...")
         
         config_data = self.tester.parse_config(config_str)
         if not config_data:
-            logger.debug(f"⚡ [{index}/{total}] Не удалось распарсить")
             return False
         
         temp_config = None
@@ -230,18 +228,15 @@ class VlessCollector:
                 stderr=subprocess.DEVNULL
             )
             
-            time.sleep(self.quick_timeout)
+            time.sleep(self.quick_timeout)  # 1 секунда
             
             is_alive = process.poll() is None
             if is_alive:
                 logger.info(f"✅ [{index}/{total}] Быстрый тест пройден")
-            else:
-                logger.debug(f"❌ [{index}/{total}] Быстрый тест не пройден")
             
             return is_alive
             
         except Exception as e:
-            logger.debug(f"⚡ [{index}/{total}] Ошибка: {e}")
             return False
             
         finally:
@@ -332,7 +327,7 @@ class VlessCollector:
         all_items = list(unique_configs_map.values())
         logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных vless серверов")
         
-        # === УРОВЕНЬ 1: БЫСТРЫЙ XRAY ТЕСТ ===
+        # === УРОВЕНЬ 1: БЫСТРЫЙ XRAY ТЕСТ (50 потоков, 1 секунда) ===
         logger.info(f"⚡ Запуск быстрого Xray теста ({self.check_workers} потоков, таймаут={self.quick_timeout}c)...")
         
         quick_alive = []
@@ -457,7 +452,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v7.7")
+        print("🚀 POWER v7.9")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: быстрый Xray={self.quick_timeout}c | полный Xray={self.check_timeout}c")
