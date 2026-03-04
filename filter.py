@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v7.2
+Power v7.3 (Diagnostic)
 ====================================
-- Асинхронная проверка через Xray-core (вместо curl_cffi)
-- URL: https://www.gstatic.com/generate_204
-- Таймаут: 5 сек
-- Конкурентность: 3 (Xray процессы тяжелые)
+- Добавлена диагностика чтения list.txt
+- Логирование каждого этапа step2_check_all
+- Определение места зависания
 ====================================
 """
 
@@ -27,7 +26,7 @@ import socket
 import ssl
 import asyncio
 
-# Импорт Xray тестера (вместо asynctest)
+# Импорт Xray тестера
 from xray_tester import XrayTester
 
 # Настройка логирования
@@ -51,10 +50,10 @@ class VlessCollector:
                  top500_file: str = '500.txt',
                  speed_threshold: float = 800.0,
                  download_timeout: int = 10,
-                 check_timeout: float = 5.0,        # Xray требует больше времени
+                 check_timeout: float = 5.0,
                  tcp_timeout: int = 2,
                  download_workers: int = 10,
-                 check_workers: int = 3):           # Xray процессы тяжелые, не больше 3-5
+                 check_workers: int = 3):
         
         self.sources_file = sources_file
         self.list_file = list_file
@@ -70,7 +69,7 @@ class VlessCollector:
         self.check_workers = check_workers
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         
-        # Xray тестер (вместо AsyncChecker)
+        # Xray тестер
         self.tester = XrayTester(
             timeout=self.check_timeout,
             max_workers=self.check_workers
@@ -235,62 +234,106 @@ class VlessCollector:
         return config.replace('&;', '&')
     
     def step2_check_all(self, sources_data: Dict[str, List[str]]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, List[str]]]:
-        """ШАГ 2: Проверяет все сервера (через Xray)."""
+        """ШАГ 2: Проверяет все сервера (через Xray) с диагностикой."""
         print("\n" + "="*70)
-        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (Xray)")
+        print("⚡ ШАГ 2: ПРОВЕРКА СЕРВЕРОВ (Xray) - С ДИАГНОСТИКОЙ")
         print("="*70)
         
+        # === ДИАГНОСТИКА 1: Проверка существования файла ===
         if not os.path.exists(self.list_file):
+            logger.error(f"❌ Файл {self.list_file} не найден")
             return {}, {}, {}
         
-        # Читаем list.txt
+        file_size = os.path.getsize(self.list_file)
+        logger.info(f"📁 Файл {self.list_file} найден, размер: {file_size / (1024*1024):.2f} MB")
+        
+        # === ДИАГНОСТИКА 2: Чтение файла построчно ===
+        logger.info(f"📖 Начинаю чтение {self.list_file}...")
         source_configs = defaultdict(list)
         current_source = None
+        line_count = 0
+        config_count = 0
         
-        with open(self.list_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('# ИСТОЧНИК:'):
-                    current_source = line.replace('# ИСТОЧНИК:', '').strip()
-                elif line and not line.startswith('#') and current_source:
-                    source_configs[current_source].append(line)
+        try:
+            with open(self.list_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    line_count += 1
+                    
+                    # Логируем каждые 10000 строк
+                    if line_count % 10000 == 0:
+                        logger.info(f"📖 Прочитано {line_count} строк, найдено {config_count} конфигов")
+                    
+                    if line.startswith('# ИСТОЧНИК:'):
+                        current_source = line.replace('# ИСТОЧНИК:', '').strip()
+                        logger.debug(f"🔍 Источник: {current_source[:50]}...")
+                    elif line and not line.startswith('#') and current_source:
+                        source_configs[current_source].append(line)
+                        config_count += 1
+        except Exception as e:
+            logger.error(f"❌ Ошибка при чтении {self.list_file}: {e}")
+            return {}, {}, {}
         
-        # Собираем все конфиги с источниками
+        logger.info(f"📖 Всего прочитано {line_count} строк, найдено {config_count} конфигов")
+        
+        # === ДИАГНОСТИКА 3: Сбор валидных конфигов ===
+        logger.info(f"🔍 Начинаю проверку валидности конфигов...")
         all_configs_with_sources = []  # (source_url, config)
         source_totals = defaultdict(int)
+        valid_count = 0
+        invalid_count = 0
         
         for source_url, configs in source_configs.items():
+            source_valid = 0
             for config in configs:
-                # Проверяем что конфиг валидный (любой протокол)
                 if self.is_valid_config(config)[0]:
                     all_configs_with_sources.append((source_url, config))
                     source_totals[source_url] += 1
+                    source_valid += 1
+                    valid_count += 1
+                else:
+                    invalid_count += 1
+            
+            logger.debug(f"📊 {source_url[:50]}...: {source_valid}/{len(configs)} валидных")
         
+        logger.info(f"✅ Валидных конфигов: {valid_count}, невалидных: {invalid_count}")
         logger.info(f"🌍 Найдено серверов (с дубликатами): {len(all_configs_with_sources)}")
         
         if not all_configs_with_sources:
+            logger.warning("⚠️ Нет валидных конфигов для проверки!")
             return {}, {}, source_configs
         
-        # Дедупликация до проверки
+        # === ДИАГНОСТИКА 4: Дедупликация ===
+        logger.info(f"🔍 Начинаю дедупликацию...")
         unique_configs_map = {}
+        duplicate_count = 0
+        
         for source_url, config in all_configs_with_sources:
             key = self.get_config_key(config)
             if key not in unique_configs_map:
                 unique_configs_map[key] = (source_url, config)
+            else:
+                duplicate_count += 1
         
         all_items = list(unique_configs_map.values())
         
         logger.info(f"🎯 После удаления дубликатов: {len(all_items)} уникальных серверов")
-        logger.info(f"📊 Сэкономлено проверок: {len(all_configs_with_sources) - len(all_items)}")
+        logger.info(f"📊 Сэкономлено проверок: {duplicate_count}")
         
         # Подготавливаем список для Xray проверки
         config_list = [config for source_url, config in all_items]
         
         logger.info(f"🚀 Запуск Xray проверки ({self.tester.max_workers} процессов, таймаут={self.tester.timeout}с)...")
         
-        # Xray проверка
+        # === ДИАГНОСТИКА 5: Xray проверка ===
         start_time = time.time()
-        alive_results = self.tester.test_many(config_list)
+        
+        try:
+            alive_results = self.tester.test_many(config_list)
+            logger.info(f"✅ Xray проверка завершена, найдено рабочих: {len(alive_results)}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при Xray проверке: {e}")
+            alive_results = []
         
         # Создаем словарь для быстрого поиска
         alive_dict = {config: speed for config, speed in alive_results}
@@ -393,15 +436,14 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v7.2")
+        print("🚀 POWER v7.3 (Diagnostic)")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТ: {self.check_timeout}с")
         print("ПРОТОКОЛЫ: ВСЕ")
         print("ПРОВЕРКА: Xray-core (реальная работа через прокси)")
-        print(f"ПРОЦЕССОВ: {self.tester.max_workers} (Xray тяжелый)")
-        print("ДЕДУПЛИКАЦИЯ: ДО ПРОВЕРКИ")
-        print("GeoIP: УДАЛЕН | trash: УДАЛЕН")
+        print(f"ПРОЦЕССОВ: {self.tester.max_workers}")
+        print("ДИАГНОСТИКА: ВКЛЮЧЕНА (логи每一步)")
         print("="*70)
         
         start = time.time()
