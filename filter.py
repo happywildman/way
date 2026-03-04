@@ -2,11 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Power v7.5
+Power v7.6
 ====================================
-- Двухуровневая проверка: быстрый Xray → полный Xray
-- Быстрый тест: запуск Xray на 1.5 сек для проверки рукопожатия
-- Точный тест: полный запрос через SOCKS5
+- Добавлено логирование прогресса быстрого Xray теста
+- Каждый тест логируется с номером
 ====================================
 """
 
@@ -46,7 +45,7 @@ class VlessCollector:
     def __init__(self,
                  sources_file: str = 'sources.txt',
                  list_file: str = 'list.txt',
-                 all_file: str = 'all.txt',           # ← ИСПРАВЛЕНО
+                 all_file: str = 'all.txt',
                  out_file: str = 'out.txt',
                  stat_file: str = 'stat.txt',
                  top500_file: str = '500.txt',
@@ -205,13 +204,16 @@ class VlessCollector:
         
         return results
     
-    def quick_xray_test(self, config_str: str) -> bool:
+    def quick_xray_test(self, config_str: str, index: int, total: int) -> bool:
         """
         Быстрый тест через Xray - проверяет, запускается ли процесс.
         Если процесс не умирает сразу - сервер отвечает на рукопожатие.
         """
+        logger.info(f"⚡ [{index}/{total}] Быстрый тест: {config_str[:50]}...")
+        
         config_data = self.tester.parse_config(config_str)
         if not config_data:
+            logger.debug(f"⚡ [{index}/{total}] Не удалось распарсить")
             return False
         
         temp_config = None
@@ -230,10 +232,16 @@ class VlessCollector:
             
             time.sleep(self.quick_timeout)
             
-            return process.poll() is None
+            is_alive = process.poll() is None
+            if is_alive:
+                logger.info(f"✅ [{index}/{total}] Быстрый тест пройден")
+            else:
+                logger.debug(f"❌ [{index}/{total}] Быстрый тест не пройден")
+            
+            return is_alive
             
         except Exception as e:
-            logger.debug(f"Быстрый тест ошибка: {e}")
+            logger.debug(f"⚡ [{index}/{total}] Ошибка: {e}")
             return False
             
         finally:
@@ -329,12 +337,13 @@ class VlessCollector:
         
         quick_alive = []
         quick_dead = 0
+        total = len(all_items)
         
         with ThreadPoolExecutor(max_workers=self.check_workers) as executor:
-            future_to_item = {
-                executor.submit(self.quick_xray_test, config): (source_url, config)
-                for source_url, config in all_items
-            }
+            future_to_item = {}
+            for i, (source_url, config) in enumerate(all_items):
+                future = executor.submit(self.quick_xray_test, config, i+1, total)
+                future_to_item[future] = (source_url, config)
             
             for future in as_completed(future_to_item):
                 source_url, config = future_to_item[future]
@@ -448,7 +457,7 @@ class VlessCollector:
     def run(self):
         """Основной процесс."""
         print("="*70)
-        print("🚀 POWER v7.5")
+        print("🚀 POWER v7.6")
         print("="*70)
         print("ФАЙЛЫ: sources.txt → list.txt → all.txt, out.txt, 500.txt, stat.txt")
         print(f"ТАЙМАУТЫ: быстрый Xray={self.quick_timeout}c | полный Xray={self.check_timeout}c")
