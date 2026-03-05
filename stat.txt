@@ -2,111 +2,116 @@
 📊 СТАТИСТИКА ПО ИСТОЧНИКАМ ПРОКСИ
 ======================================================================
 
-Дата: 2026-03-04 16:39:48
+Дата: 2026-03-05 05:08:54
 Таймауты: быстрый=1.0c, полный=2.0c
 
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/4.txt
-   Total vless: 10
-   ✅ Прошли полный тест: 3 (30.0%)
-   ⚡ Avg ping: 157ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/23.txt
-   Total vless: 119
-   ✅ Прошли полный тест: 29 (24.4%)
-   ⚡ Avg ping: 356ms
-
 📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt
-   Total vless: 111
-   ✅ Прошли полный тест: 26 (23.4%)
-   ⚡ Avg ping: 561ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/1.txt
-   Total vless: 2719
-   ✅ Прошли полный тест: 486 (17.9%)
-   ⚡ Avg ping: 506ms
-
-📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile.txt
-   Total vless: 145
-   ✅ Прошли полный тест: 25 (17.2%)
-   ⚡ Avg ping: 685ms
-
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/22.txt
-   Total vless: 297
-   ✅ Прошли полный тест: 46 (15.5%)
-   ⚡ Avg ping: 284ms
-
-📌 https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&filter=vless&warp=on
-   Total vless: 7
-   ✅ Прошли полный тест: 1 (14.3%)
-   ⚡ Avg ping: 674ms
+   Total vless: 101
+   ✅ Прошли полный тест: 35 (34.7%)
+   ⚡ Avg ping: 457ms
 
 📌 https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/vless.txt
-   Total vless: 605
-   ✅ Прошли полный тест: 51 (8.4%)
-   ⚡ Avg ping: 399ms
+   Total vless: 628
+   ✅ Прошли полный тест: 149 (23.7%)
+   ⚡ Avg ping: 345ms
 
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/25.txt
-   Total vless: 423
-   ✅ Прошли полный тест: 32 (7.6%)
-   ⚡ Avg ping: 370ms
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/23.txt
+   Total vless: 76
+   ✅ Прошли полный тест: 17 (22.4%)
+   ⚡ Avg ping: 446ms
 
-📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol/vless.txt
-   Total vless: 333
-   ✅ Прошли полный тест: 25 (7.5%)
-   ⚡ Avg ping: 260ms
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/1.txt
+   Total vless: 2529
+   ✅ Прошли полный тест: 502 (19.8%)
+   ⚡ Avg ping: 488ms
 
-📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt
-   Total vless: 507
-   ✅ Прошли полный тест: 35 (6.9%)
-   ⚡ Avg ping: 693ms
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/22.txt
+   Total vless: 309
+   ✅ Прошли полный тест: 47 (15.2%)
+   ⚡ Avg ping: 274ms
 
-📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/26.txt
-   Total vless: 1965
-   ✅ Прошли полный тест: 101 (5.1%)
-   ⚡ Avg ping: 537ms
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/4.txt
+   Total vless: 15
+   ✅ Прошли полный тест: 2 (13.3%)
+   ⚡ Avg ping: 484ms
 
 📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-SNI-RU-all.txt
-   Total vless: 22
-   ✅ Прошли полный тест: 1 (4.5%)
-   ⚡ Avg ping: 580ms
+   Total vless: 23
+   ✅ Прошли полный тест: 3 (13.0%)
+   ⚡ Avg ping: 522ms
+
+📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile.txt
+   Total vless: 149
+   ✅ Прошли полный тест: 8 (5.4%)
+   ⚡ Avg ping: 548ms
+
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/26.txt
+   Total vless: 1842
+   ✅ Прошли полный тест: 53 (2.9%)
+   ⚡ Avg ping: 526ms
 
 📌 https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/heads/main/githubmirror/clean/vless.txt
    Total vless: 7688
-   ✅ Прошли полный тест: 237 (3.1%)
-   ⚡ Avg ping: 581ms
+   ✅ Прошли полный тест: 210 (2.7%)
+   ⚡ Avg ping: 595ms
+
+📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile-2.txt
+   Total vless: 142
+   ✅ Прошли полный тест: 3 (2.1%)
+   ⚡ Avg ping: 723ms
 
 📌 https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/refs/heads/main/Protocols/vless.txt
-   Total vless: 4119
-   ✅ Прошли полный тест: 66 (1.6%)
-   ⚡ Avg ping: 320ms
+   Total vless: 4179
+   ✅ Прошли полный тест: 81 (1.9%)
+   ⚡ Avg ping: 319ms
 
-📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS#STR.BYPASS
-   Total vless: 3719
-   ✅ Прошли полный тест: 14 (0.4%)
-   ⚡ Avg ping: 445ms
+📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt
+   Total vless: 598
+   ✅ Прошли полный тест: 11 (1.8%)
+   ⚡ Avg ping: 636ms
 
-📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/CUSTOM#CUSTOM.STR.BYPASS
-   Total vless: 2964
-   ✅ Прошли полный тест: 8 (0.3%)
-   ⚡ Avg ping: 525ms
+📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol-Secure/vless.txt
+   Total vless: 350
+   ✅ Прошли полный тест: 6 (1.7%)
+   ⚡ Avg ping: 337ms
 
-📌 https://raw.githubusercontent.com/Subzio/subzio/refs/heads/main/WHITE_LIST_PROXY_COLLECTION.txt
-   Total vless: 474
-   ✅ Прошли полный тест: 1 (0.2%)
-   ⚡ Avg ping: 128ms
+📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/25.txt
+   Total vless: 366
+   ✅ Прошли полный тест: 6 (1.6%)
+   ⚡ Avg ping: 382ms
 
 📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR#MEGA.STR.BYPASS
    Total vless: 2716
-   ✅ Прошли полный тест: 3 (0.1%)
-   ⚡ Avg ping: 363ms
-
-📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/Vless#VLESS.STR.BYPASS
-   Total vless: 36
-   ✅ Прошли полный тест: 0 (0.0%)
-   ⚡ Avg ping: 0ms
+   ✅ Прошли полный тест: 26 (1.0%)
+   ⚡ Avg ping: 385ms
 
 📌 https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/heads/main/githubmirror/ru-sni/vless.txt
    Total vless: 328
+   ✅ Прошли полный тест: 3 (0.9%)
+   ⚡ Avg ping: 621ms
+
+📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol/vless.txt
+   Total vless: 441
+   ✅ Прошли полный тест: 2 (0.5%)
+   ⚡ Avg ping: 150ms
+
+📌 https://raw.githubusercontent.com/Subzio/subzio/refs/heads/main/WHITE_LIST_PROXY_COLLECTION.txt
+   Total vless: 474
+   ✅ Прошли полный тест: 2 (0.4%)
+   ⚡ Avg ping: 178ms
+
+📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/CUSTOM#CUSTOM.STR.BYPASS
+   Total vless: 2964
+   ✅ Прошли полный тест: 6 (0.2%)
+   ⚡ Avg ping: 574ms
+
+📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS#STR.BYPASS
+   Total vless: 3719
+   ✅ Прошли полный тест: 3 (0.1%)
+   ⚡ Avg ping: 636ms
+
+📌 https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/Vless#VLESS.STR.BYPASS
+   Total vless: 36
    ✅ Прошли полный тест: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
@@ -120,38 +125,33 @@
    ✅ Прошли полный тест: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
-📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile-2.txt
-   Total vless: 148
-   ✅ Прошли полный тест: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-checked.txt
-   Total vless: 372
-   ✅ Прошли полный тест: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt
-   Total vless: 105
-   ✅ Прошли полный тест: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
 📌 https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&name=MyVPN
    Total vless: 7
    ✅ Прошли полный тест: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
+📌 https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&filter=vless&warp=on
+   Total vless: 7
+   ✅ Прошли полный тест: 0 (0.0%)
+   ⚡ Avg ping: 0ms
+
+📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt
+   Total vless: 95
+   ✅ Прошли полный тест: 0 (0.0%)
+   ⚡ Avg ping: 0ms
+
+📌 https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-checked.txt
+   Total vless: 502
+   ✅ Прошли полный тест: 0 (0.0%)
+   ⚡ Avg ping: 0ms
+
 📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/6.txt
-   Total vless: 59
+   Total vless: 82
    ✅ Прошли полный тест: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
 📌 https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/24.txt
    Total vless: 3577
-   ✅ Прошли полный тест: 0 (0.0%)
-   ⚡ Avg ping: 0ms
-
-📌 https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Splitted-By-Protocol-Secure/vless.txt
-   Total vless: 275
    ✅ Прошли полный тест: 0 (0.0%)
    ⚡ Avg ping: 0ms
 
@@ -163,73 +163,65 @@
 ======================================================================
 📈 ОБЩАЯ СТАТИСТИКА
 ======================================================================
-Всего vless серверов: 37585
-✅ Прошли полный тест: 1190 (3.2%)
+Всего vless серверов: 37678
+✅ Прошли полный тест: 1175 (3.1%)
 
 
 ======================================================================
 🔍 АНАЛИЗ ДУБЛИКАТОВ И УНИКАЛЬНОСТИ ИСТОЧНИКОВ
 ======================================================================
 
-📊 Всего уникальных vless конфигов в пуле: 20,158
-📊 Всего vless конфигов с учётом дублей: 40,198
-📊 Коэффициент дублирования: 1.99x
+📊 Всего уникальных vless конфигов в пуле: 12,621
+📊 Всего vless конфигов с учётом дублей: 12,621
+📊 Коэффициент дублирования: 1.00x
 
 📌 ДЕТАЛЬНАЯ СТАТИСТИКА ПО ИСТОЧНИКАМ:
 ------------------------------------------------------------------------------------------------------------------------
    Источник                                                                            Всего    Уник.   Дублей    % уник.      Пинг%       Статус
 ------------------------------------------------------------------------------------------------------------------------
-   https://raw.githubusercontent.com/Mosifree/-FREE2CONFIG/refs/heads/main/Reality       215      194       18      90.2%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...       10        9        1      90.0%      30.0%  🟡 СРЕДНИЙ
-   https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/refs/heads/main/Pr...     4432     3708      724      83.7%       1.6%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...      297      247       50      83.2%      15.5%  🟠 СОМНИТЕЛЬНЫЙ
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...      424      312       83      73.6%       7.6%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...     2991     2007      984      67.1%      17.9%  🟠 СОМНИТЕЛЬНЫЙ
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...     2141     1259      882      58.8%       5.1%  🔴 МУСОР
-   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/Vless#VLESS.S...       36       16       18      44.4%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/CUSTOM#CUSTOM...     2964     1236     1673      41.7%       0.3%  🔴 МУСОР
-   https://raw.githubusercontent.com/Subzio/subzio/refs/heads/main/WHITE_LIST_PR...      480      198      282      41.2%       0.2%  🔴 МУСОР
-   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR#MEGA.STR....     2716      992     1681      36.5%       0.1%  🔴 МУСОР
-   https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/head...     8916     2751     1707      30.9%       3.1%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...       23        7       16      30.4%       4.5%  🔴 МУСОР
-   https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/vl...      726      215      495      29.6%       8.4%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...      120       24       96      20.0%      24.4%  🟠 СОМНИТЕЛЬНЫЙ
-   https://gbr.mydan.online/configs                                                        9        1        8      11.1%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...      517       42      475       8.1%       6.9%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...      113        4      109       3.5%      23.4%  🔴 МУСОР
-   https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Split...      369       12      357       3.3%       7.5%  🔴 МУСОР
-   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS#ST...     3775        0     3073       0.0%       0.4%  🔴 МУСОР
-   https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/head...      364        0      364       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS           3775        0     3073       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...      150        0      150       0.0%      17.2%  🔴 МУСОР
-   https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&filter=vless&w...        7        0        6       0.0%      14.3%  🔴 МУСОР
-   https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&filter=vless             7        0        6       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...      150        0      150       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...      374        0      374       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...      107        0      107       0.0%       0.0%  🔴 МУСОР
-   https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&name=MyVPN               7        0        6       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...       59        0       59       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...     3621        0     2927       0.0%       0.0%  🔴 МУСОР
-   https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Split...      303        0      303       0.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/Vless#VLESS.S...       32       32        0     100.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/head...      328      328        0     100.0%       0.9%  🔴 МУСОР
+   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR#MEGA.STR....     1616     1616        0     100.0%       1.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS#ST...     1240     1240        0     100.0%       0.1%  🔴 МУСОР
+   https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/CUSTOM#CUSTOM...      804      804        0     100.0%       0.2%  🔴 МУСОР
+   https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/head...     2583     2583        0     100.0%       2.7%  🔴 МУСОР
+   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...       90       90        0     100.0%       2.1%  🔴 МУСОР
+   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...       91       91        0     100.0%       5.4%  🟠 НИЗКИЙ
+   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...      126      126        0     100.0%       1.8%  🔴 МУСОР
+   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...       16       16        0     100.0%      13.0%  🟠 НИЗКИЙ
+   https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/m...       88       88        0     100.0%      34.7%  🟡 СРЕДНИЙ
+   https://vlesstrojan.alexanderyurievich88.workers.dev?token=sub&filter=vless             3        3        0     100.0%       0.0%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...       42       42        0     100.0%      22.4%  🟡 СРЕДНИЙ
+   https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/vl...      351      351        0     100.0%      23.7%  🟡 СРЕДНИЙ
+   https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/refs/heads/main/Pr...     2404     2404        0     100.0%       1.9%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...      145      145        0     100.0%       1.6%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...      139      139        0     100.0%      15.2%  🟠 НИЗКИЙ
+   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...      870      870        0     100.0%       2.9%  🔴 МУСОР
+   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...        7        7        0     100.0%      13.3%  🟠 НИЗКИЙ
+   https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main...     1531     1531        0     100.0%      19.8%  🟠 НИЗКИЙ
+   https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Split...       26       26        0     100.0%       1.7%  🔴 МУСОР
+   https://raw.githubusercontent.com/VovaplusEXP/p-configs/refs/heads/main/Split...       11       11        0     100.0%       0.5%  🔴 МУСОР
+   https://raw.githubusercontent.com/Subzio/subzio/refs/heads/main/WHITE_LIST_PR...       77       77        0     100.0%       0.4%  🔴 МУСОР
+   https://gbr.mydan.online/configs                                                        1        1        0     100.0%       0.0%  🔴 МУСОР
 
 💡 РЕКОМЕНДАЦИИ ПО ОПТИМИЗАЦИИ:
 ----------------------------------------------------------------------
 
 🔴 КАНДИДАТЫ НА УДАЛЕНИЕ ИЗ sources.txt:
-   • https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS#ST...
-     (уникальных: 0, проверок: 3775)
    • https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/Vless#VLESS.S...
-     (уникальных: 16, проверок: 36)
+     (уникальных: 32, проверок: 32)
    • https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/refs/head...
-     (уникальных: 0, проверок: 364)
+     (уникальных: 328, проверок: 328)
    • https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR#MEGA.STR....
-     (уникальных: 992, проверок: 2716)
-   • https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS
-     (уникальных: 0, проверок: 3775)
+     (уникальных: 1616, проверок: 1616)
+   • https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/STR.BYPASS#ST...
+     (уникальных: 1240, проверок: 1240)
+   • https://raw.githubusercontent.com/STR97/STRUGOV/refs/heads/main/CUSTOM#CUSTOM...
+     (уникальных: 804, проверок: 804)
 
 📊 ПОТЕНЦИАЛЬНАЯ ЭКОНОМИЯ:
-   • Удаляется источников: 28
-   • Потеряется уникальных: 10947 (54.3%)
-   • Освободится проверок: 36780 (91.5%)
-   • НОВОЕ ВРЕМЯ: ~78 сек (было 922 сек)
+   • Удаляется источников: 17
+   • Потеряется уникальных: 10447 (82.8%)
+   • Освободится проверок: 10447 (82.8%)
+   • НОВОЕ ВРЕМЯ: ~50 сек (было 289 сек)
 ======================================================================
